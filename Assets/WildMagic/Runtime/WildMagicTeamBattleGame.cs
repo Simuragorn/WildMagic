@@ -167,7 +167,7 @@ namespace WildMagic.Prototype
         {
             GameObject go=new("Team Fireball");go.transform.SetParent(transform);go.transform.localScale=Vector3.one*.13f;
             SpriteRenderer r=go.AddComponent<SpriteRenderer>();r.sprite=white;r.color=Hex("FF7A22");r.sortingOrder=12;
-            Vector2 pos=owner.Position+Vector2.up*.55f+direction*.5f;go.transform.position=pos;shots.Add(new Shot{Object=go,Team=owner.Team,Position=pos,Velocity=direction*9.5f,Life=2.2f});
+            Vector2 pos=owner.Position+Vector2.up*.55f+direction*.5f;go.transform.position=pos;shots.Add(new Shot{Object=go,Owner=owner,Position=pos,Velocity=direction*9.5f,Life=2.2f});
         }
 
         private void CastBeam(Mage owner,Vector2 direction)
@@ -176,13 +176,13 @@ namespace WildMagic.Prototype
             GameObject go=new("Wide Beam");go.transform.SetParent(transform);go.transform.position=(start+end)*.5f;go.transform.rotation=Quaternion.Euler(0,0,Mathf.Atan2(direction.y,direction.x)*Mathf.Rad2Deg);go.transform.localScale=new Vector3(18f,.34f,1);
             SpriteRenderer renderer=go.AddComponent<SpriteRenderer>();renderer.sprite=white;renderer.color=new Color(.24f,.86f,1f,.72f);renderer.sortingOrder=11;
             particles.Add(new Particle{Object=go,Renderer=renderer,Position=go.transform.position,Velocity=Vector2.zero,Life=.16f,MaxLife=.16f,Gravity=0});
-            foreach(Mage target in mages)if(target.Alive&&target.Team!=owner.Team&&SegmentDistance(start,end,target.Position+Vector2.up*.5f)<.52f)Hit(target,target.Position+Vector2.up*.5f,direction,2,true);
+            foreach(Mage target in mages)if(target.Alive&&target!=owner&&SegmentDistance(start,end,target.Position+Vector2.up*.5f)<.52f)Hit(target,target.Position+Vector2.up*.5f,direction,2,true);
         }
 
         private void UpdateShots()
         {
             for(int i=shots.Count-1;i>=0;i--){Shot s=shots[i];s.Position+=s.Velocity*Time.deltaTime;s.Life-=Time.deltaTime;s.Object.transform.position=s.Position;
-                Mage? hit=null;foreach(Mage m in mages)if(m.Alive&&m.Team!=s.Team&&(m.Position+Vector2.up*.55f-s.Position).sqrMagnitude<.32f){hit=m;break;}
+                Mage? hit=null;foreach(Mage m in mages)if(m.Alive&&m!=s.Owner&&(m.Position+Vector2.up*.55f-s.Position).sqrMagnitude<.32f){hit=m;break;}
                 if(hit!=null){Hit(hit,s.Position,s.Velocity.normalized);RemoveShot(i);continue;}if(s.Life<=0||Mathf.Abs(s.Position.x)>HalfW||Mathf.Abs(s.Position.y)>HalfH)RemoveShot(i);}
         }
 
@@ -253,7 +253,7 @@ namespace WildMagic.Prototype
         private enum Spell{Fireball,WideBeam}
         private sealed class Mage{public int Team,Hp;public bool Player,Alive,Moving;public Vector2 Position,Aim;public float NextShot,NextDecision,BurnUntil;public SpriteRenderer Renderer=null!;public TextMesh? Label;public Frame[] Idle=Array.Empty<Frame>(),Walk=Array.Empty<Frame>();}
         private sealed class Frame{public Sprite Sprite=null!;public Color32[] Outer=Array.Empty<Color32>(),Flesh=Array.Empty<Color32>(),Bones=Array.Empty<Color32>();public int Width,Height,Bob;}
-        private sealed class Shot{public GameObject Object=null!;public int Team;public Vector2 Position,Velocity;public float Life;}
+        private sealed class Shot{public GameObject Object=null!;public Mage Owner=null!;public Vector2 Position,Velocity;public float Life;}
         private sealed class Wound{public Mage Mage=null!;public float U,V,Until,Next;public int Severity;}
         private sealed class Particle{public GameObject Object=null!;public SpriteRenderer Renderer=null!;public Vector2 Position,Velocity;public float Life,MaxLife,Gravity;}
         private sealed class Corpse{public GameObject Object=null!;public Vector2 Position,Velocity;public float Spin,Life;}
