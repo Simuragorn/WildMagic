@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
+using UnityEngine.SceneManagement;
 
 namespace WildMagic.Prototype
 {
@@ -120,6 +121,8 @@ namespace WildMagic.Prototype
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void Bootstrap()
         {
+            if (SceneManager.GetActiveScene().name == "TeamBattle3v3")
+                return;
             if (FindFirstObjectByType<WildMagicArenaGame>() != null)
                 return;
 
