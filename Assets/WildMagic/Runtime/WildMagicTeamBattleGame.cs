@@ -22,6 +22,8 @@ namespace WildMagic.Prototype
         private Sprite white = null!;
         private Font font = null!;
         private TextMesh score = null!;
+        private TextMesh spellLabel = null!;
+        private Spell selectedSpell;
         private bool finished;
         private bool paused;
         private bool escapeHeld;
@@ -92,13 +94,14 @@ namespace WildMagic.Prototype
             Panel("Header", new Vector2(0,5.18f), new Vector2(18.4f,.8f), Hex("070B15"), -5);
             Glyph("WILD MAGIC  //  3 НА 3", new Vector2(0,5.2f), Hex("D6E2EF"), .18f, 20);
             score = Glyph(string.Empty, new Vector2(0,4.82f), Hex("D6E2EF"), .12f, 20);
-            Glyph("WASD / СТРЕЛКИ — ДВИЖЕНИЕ    ЛКМ — ОГНЕННЫЙ ШАР    R — НОВЫЙ БОЙ    ESC — МЕНЮ",
+            spellLabel = Glyph(string.Empty, new Vector2(0,-4.56f), Hex("FFB14A"), .11f, 20);
+            Glyph("WASD / СТРЕЛКИ — ДВИЖЕНИЕ    ЛКМ — ПРИМЕНИТЬ    КОЛЕСО — ЗАКЛИНАНИЕ    R — НОВЫЙ БОЙ    ESC — МЕНЮ",
                 new Vector2(0,-4.88f), new Color(.84f,.89f,.94f,.72f), .1f, 20);
         }
 
         private void StartBattle()
         {
-            ClearBattle(); finished = false; paused = false; result = string.Empty;
+            ClearBattle(); finished = false; paused = false; result = string.Empty; selectedSpell=Spell.Fireball; RefreshSpell();
             Vector2[] left = { new(-5.6f,0), new(-4.9f,2), new(-4.9f,-2) };
             Vector2[] right = { new(5.6f,0), new(4.9f,2), new(4.9f,-2) };
             List<int> colors = new() {0,1,2,3,4,5};
@@ -117,7 +120,8 @@ namespace WildMagic.Prototype
             mage.Renderer=go.AddComponent<SpriteRenderer>(); mage.Renderer.sortingOrder=5;
             mage.Idle=MakeFrames($"{color.name} Team Idle",color.robe,color.magic,false);
             mage.Walk=MakeFrames($"{color.name} Team Walk",color.robe,color.magic,true);
-            Panel("Team Mark", position+new Vector2(0,-.08f), new Vector2(.62f,.09f), team==0?Hex("3C8DFF"):Hex("FF4E62"), 3, go.transform, true);
+            if(!player) mage.Label=Glyph(team==0?"СОЮЗНИК":"ВРАГ",position+Vector2.up*1.52f,
+                team==0?Hex("73B5FF"):Hex("FF7180"),.085f,18);
             mages.Add(mage);
         }
 
@@ -128,7 +132,8 @@ namespace WildMagic.Prototype
             {
                 Color32[] outer=sprites[f].texture.GetPixels32(); Color32[] flesh=WildMagicShowcase.CreateMageFleshPixels(f,walking);
                 Color32[] bones=WildMagicShowcase.CreateMageSkeletonPixels(f,walking);
-                frames[f]=new Frame{Sprite=sprites[f],Outer=outer,Flesh=flesh,Bones=bones,Width=sprites[f].texture.width,Height=sprites[f].texture.height};
+                int bob=walking?new[]{0,1,0,1}[f]:new[]{0,1,1,0}[f];
+                frames[f]=new Frame{Sprite=sprites[f],Outer=outer,Flesh=flesh,Bones=bones,Width=sprites[f].texture.width,Height=sprites[f].texture.height,Bob=bob};
                 Rebuild(frames[f]); art.Add(sprites[f]); art.Add(sprites[f].texture);
             }
             return frames;
@@ -140,7 +145,8 @@ namespace WildMagic.Prototype
             Vector2 move=Vector2.zero;
             if(keyboard!=null){if(keyboard.aKey.isPressed||keyboard.leftArrowKey.isPressed)move.x--;if(keyboard.dKey.isPressed||keyboard.rightArrowKey.isPressed)move.x++;if(keyboard.sKey.isPressed||keyboard.downArrowKey.isPressed)move.y--;if(keyboard.wKey.isPressed||keyboard.upArrowKey.isPressed)move.y++;}
             p.Moving=move.sqrMagnitude>.01f; if(p.Moving)p.Position=Clamp(p.Position+move.normalized*3.15f*Time.deltaTime);
-            if(Mouse.current!=null){Vector3 world=cameraRef.ScreenToWorldPoint(Mouse.current.position.ReadValue());p.Aim=((Vector2)world-p.Position).normalized;if(Mouse.current.leftButton.isPressed&&Time.time>=p.NextShot){p.NextShot=Time.time+.3f;Fire(p,p.Aim);}}
+            if(Mouse.current!=null){if(Mathf.Abs(Mouse.current.scroll.ReadValue().y)>.01f){selectedSpell=selectedSpell==Spell.Fireball?Spell.WideBeam:Spell.Fireball;RefreshSpell();}
+                Vector3 world=cameraRef.ScreenToWorldPoint(Mouse.current.position.ReadValue());p.Aim=((Vector2)world-(p.Position+Vector2.up*.55f)).normalized;if(Mouse.current.leftButton.isPressed&&Time.time>=p.NextShot){if(selectedSpell==Spell.Fireball){p.NextShot=Time.time+.3f;Fire(p,p.Aim);}else{p.NextShot=Time.time+.65f;CastBeam(p,p.Aim);}}}
         }
 
         private void UpdateAi(Mage mage,int index)
@@ -161,30 +167,41 @@ namespace WildMagic.Prototype
         {
             GameObject go=new("Team Fireball");go.transform.SetParent(transform);go.transform.localScale=Vector3.one*.13f;
             SpriteRenderer r=go.AddComponent<SpriteRenderer>();r.sprite=white;r.color=Hex("FF7A22");r.sortingOrder=12;
-            Vector2 pos=owner.Position+direction*.5f;go.transform.position=pos;shots.Add(new Shot{Object=go,Team=owner.Team,Position=pos,Velocity=direction*9.5f,Life=2.2f});
+            Vector2 pos=owner.Position+Vector2.up*.55f+direction*.5f;go.transform.position=pos;shots.Add(new Shot{Object=go,Team=owner.Team,Position=pos,Velocity=direction*9.5f,Life=2.2f});
+        }
+
+        private void CastBeam(Mage owner,Vector2 direction)
+        {
+            Vector2 start=owner.Position+Vector2.up*.52f+direction*.35f,end=start+direction*18f;
+            GameObject go=new("Wide Beam");go.transform.SetParent(transform);go.transform.position=(start+end)*.5f;go.transform.rotation=Quaternion.Euler(0,0,Mathf.Atan2(direction.y,direction.x)*Mathf.Rad2Deg);go.transform.localScale=new Vector3(18f,.34f,1);
+            SpriteRenderer renderer=go.AddComponent<SpriteRenderer>();renderer.sprite=white;renderer.color=new Color(.24f,.86f,1f,.72f);renderer.sortingOrder=11;
+            particles.Add(new Particle{Object=go,Renderer=renderer,Position=go.transform.position,Velocity=Vector2.zero,Life=.16f,MaxLife=.16f,Gravity=0});
+            foreach(Mage target in mages)if(target.Alive&&target.Team!=owner.Team&&SegmentDistance(start,end,target.Position+Vector2.up*.5f)<.52f)Hit(target,target.Position+Vector2.up*.5f,direction,2,true);
         }
 
         private void UpdateShots()
         {
             for(int i=shots.Count-1;i>=0;i--){Shot s=shots[i];s.Position+=s.Velocity*Time.deltaTime;s.Life-=Time.deltaTime;s.Object.transform.position=s.Position;
-                Mage? hit=null;foreach(Mage m in mages)if(m.Alive&&m.Team!=s.Team&&(m.Position-s.Position).sqrMagnitude<.32f){hit=m;break;}
+                Mage? hit=null;foreach(Mage m in mages)if(m.Alive&&m.Team!=s.Team&&(m.Position+Vector2.up*.55f-s.Position).sqrMagnitude<.32f){hit=m;break;}
                 if(hit!=null){Hit(hit,s.Position,s.Velocity.normalized);RemoveShot(i);continue;}if(s.Life<=0||Mathf.Abs(s.Position.x)>HalfW||Mathf.Abs(s.Position.y)>HalfH)RemoveShot(i);}
         }
 
-        private void Hit(Mage mage,Vector2 world,Vector2 direction)
+        private void Hit(Mage mage,Vector2 world,Vector2 direction,int damage=1,bool beam=false)
         {
             Sprite sprite=mage.Renderer.sprite;Vector2 local=mage.Renderer.transform.InverseTransformPoint(world);if(mage.Renderer.flipX)local.x=-local.x;
-            Vector2 pixel=local*Ppu+sprite.pivot;float u=pixel.x/sprite.texture.width,v=pixel.y/sprite.texture.height;int flesh=0;
-            foreach(Frame[] animation in new[]{mage.Idle,mage.Walk})foreach(Frame frame in animation)flesh=Mathf.Max(flesh,DamageFrame(frame,u,v));
-            mage.Hp--;mage.BurnUntil=Time.time+3f;Burst(world,direction,flesh>0?Hex("D82038"):Hex("FF6A22"),flesh>0?12:8);
+            Vector2 pixel=local*Ppu+sprite.pivot;float u=pixel.x/sprite.texture.width,v=pixel.y/sprite.texture.height;int flesh=0;Frame? current=null;
+            foreach(Frame frame in mage.Idle)if(frame.Sprite==sprite)current=frame;foreach(Frame frame in mage.Walk)if(frame.Sprite==sprite)current=frame;
+            float canonicalY=pixel.y-(current?.Bob??0);
+            foreach(Frame[] animation in new[]{mage.Idle,mage.Walk})foreach(Frame frame in animation)flesh=Mathf.Max(flesh,DamageFrame(frame,pixel.x,canonicalY,beam));
+            mage.Hp-=damage;mage.BurnUntil=Time.time+3f;Burst(world,direction,flesh>0?Hex("D82038"):Hex("FF6A22"),flesh>0?12:8);
             if(flesh>0)wounds.Add(new Wound{Mage=mage,U=u,V=v,Severity=flesh,Until=Time.time+5f,Next=Time.time+.05f});
             if(mage.Hp<=0)Kill(mage,direction);RefreshScore();
         }
 
-        private static int DamageFrame(Frame frame,float u,float v)
+        private static int DamageFrame(Frame frame,float canonicalX,float canonicalY,bool beam)
         {
-            int cx=Mathf.RoundToInt(u*frame.Width),cy=Mathf.RoundToInt(v*frame.Height),flesh=0;
-            for(int y=0;y<frame.Height;y++)for(int x=0;x<frame.Width;x++){int index=y*frame.Width+x;float d=Vector2.Distance(new Vector2(x,y),new Vector2(cx,cy));if(d<=3){if(frame.Outer[index].a>0)frame.Outer[index]=default;else if(frame.Flesh[index].a>0){frame.Flesh[index]=default;flesh++;}else if(frame.Bones[index].a>0)frame.Bones[index]=Scorch(frame.Bones[index],Hex("4B4238"),.55f);}else if(d<5&&frame.Outer[index].a>0)frame.Outer[index]=Scorch(frame.Outer[index],Hex("0B090A"),.85f);}
+            int cx=Mathf.RoundToInt(canonicalX),cy=Mathf.RoundToInt(canonicalY+frame.Bob),flesh=0;float radius=beam?4.5f:3f;
+            for(int y=0;y<frame.Height;y++)for(int x=0;x<frame.Width;x++){int index=y*frame.Width+x;float d=Vector2.Distance(new Vector2(x,y),new Vector2(cx,cy));if(d<=radius){if(frame.Outer[index].a>0){frame.Outer[index]=default;if(beam&&frame.Flesh[index].a>0&&((x+y)&1)==0){frame.Flesh[index]=default;flesh++;}}else if(frame.Flesh[index].a>0){frame.Flesh[index]=default;flesh++;}else if(frame.Bones[index].a>0)frame.Bones[index]=Scorch(frame.Bones[index],Hex("4B4238"),.55f);}else if(d<radius+2&&frame.Outer[index].a>0)frame.Outer[index]=Scorch(frame.Outer[index],Hex("0B090A"),.85f);}
             Rebuild(frame);return flesh;
         }
 
@@ -199,7 +216,7 @@ namespace WildMagic.Prototype
         private void UpdateMages()
         {
             int idle=Mathf.FloorToInt(Time.time*3.5f)%4,walk=Mathf.FloorToInt(Time.time*8f)%4;
-            foreach(Mage m in mages){if(!m.Alive)continue;m.Renderer.sprite=m.Moving?m.Walk[walk].Sprite:m.Idle[idle].Sprite;m.Renderer.flipX=m.Aim.x<0;m.Renderer.transform.position=m.Position;
+            foreach(Mage m in mages){if(!m.Alive)continue;m.Renderer.sprite=m.Moving?m.Walk[walk].Sprite:m.Idle[idle].Sprite;m.Renderer.flipX=m.Aim.x<0;m.Renderer.transform.position=m.Position;if(m.Label!=null)m.Label.transform.position=m.Position+Vector2.up*1.52f;
                 if(Time.time<m.BurnUntil&&UnityEngine.Random.value<Time.deltaTime*9f)ParticleAt(m.Position+new Vector2(UnityEngine.Random.Range(-.25f,.25f),UnityEngine.Random.Range(.15f,1.1f)),Hex("FF8B21"),.06f,1f);}
         }
 
@@ -217,7 +234,7 @@ namespace WildMagic.Prototype
 
         private void CheckVictory(){int blue=mages.FindAll(m=>m.Alive&&m.Team==0).Count,red=mages.FindAll(m=>m.Alive&&m.Team==1).Count;if(blue==0||red==0){finished=true;result=blue>0?"СИНЯЯ КОМАНДА ПОБЕДИЛА":"КРАСНАЯ КОМАНДА ПОБЕДИЛА";}}
         private void RefreshScore(){int blue=mages.FindAll(m=>m.Alive&&m.Team==0).Count,red=mages.FindAll(m=>m.Alive&&m.Team==1).Count;score.text=$"СИНЯЯ КОМАНДА  {blue}   ◆   {red}  КРАСНАЯ КОМАНДА";}
-        private void ClearBattle(){foreach(Shot s in shots)Destroy(s.Object);foreach(Particle p in particles)Destroy(p.Object);foreach(Corpse c in corpses)Destroy(c.Object);foreach(Mage m in mages){Destroy(m.Renderer.gameObject);foreach(Frame f in m.Idle)DestroyFrame(f);foreach(Frame f in m.Walk)DestroyFrame(f);}shots.Clear();particles.Clear();corpses.Clear();wounds.Clear();mages.Clear();}
+        private void ClearBattle(){foreach(Shot s in shots)Destroy(s.Object);foreach(Particle p in particles)Destroy(p.Object);foreach(Corpse c in corpses)Destroy(c.Object);foreach(Mage m in mages){if(m.Label!=null)Destroy(m.Label.gameObject);Destroy(m.Renderer.gameObject);foreach(Frame f in m.Idle)DestroyFrame(f);foreach(Frame f in m.Walk)DestroyFrame(f);}shots.Clear();particles.Clear();corpses.Clear();wounds.Clear();mages.Clear();}
         private void DestroyFrame(Frame f){art.Remove(f.Sprite.texture);art.Remove(f.Sprite);Destroy(f.Sprite.texture);Destroy(f.Sprite);}
         private void RemoveShot(int i){Destroy(shots[i].Object);shots.RemoveAt(i);}
         private static Vector2 Clamp(Vector2 p){p.x=Mathf.Clamp(p.x,-HalfW+.5f,HalfW-.5f);p.y=Mathf.Clamp(p.y,-HalfH+.45f,HalfH-.45f);return p;}
@@ -225,14 +242,17 @@ namespace WildMagic.Prototype
         private void OnGUI(){if(!paused&&!finished)return;GUI.Box(new Rect(Screen.width/2-190,Screen.height/2-90,380,180),finished?result:"ПАУЗА");if(GUI.Button(new Rect(Screen.width/2-110,Screen.height/2+10,220,42),"НАЧАТЬ ЗАНОВО"))StartBattle();}
         private void OnDestroy(){ClearBattle();foreach(UnityEngine.Object item in art)if(item!=null)Destroy(item);}
         private void Panel(string name,Vector2 pos,Vector2 size,Color color,int order,Transform? parent=null,bool local=false){GameObject go=new(name);go.transform.SetParent(parent??transform,false);go.transform.position=local?Vector3.zero:pos;go.transform.localScale=new Vector3(size.x,size.y,1);SpriteRenderer r=go.AddComponent<SpriteRenderer>();r.sprite=white;r.color=color;r.sortingOrder=order;}
-        private TextMesh Glyph(string text,Vector2 pos,Color color,float size,int order){GameObject go=new("Text");go.transform.SetParent(transform);go.transform.position=pos;TextMesh mesh=go.AddComponent<TextMesh>();mesh.text=text;mesh.font=font;mesh.fontSize=64;mesh.characterSize=size;mesh.anchor=TextAnchor.MiddleCenter;mesh.alignment=TextAlignment.Center;mesh.color=color;MeshRenderer r=go.GetComponent<MeshRenderer>();r.material=font.material;r.sortingOrder=order;return mesh;}
+        private TextMesh Glyph(string text,Vector2 pos,Color color,float size,int order){GameObject go=new("Text");go.transform.SetParent(transform);go.transform.position=pos;TextMesh mesh=go.AddComponent<TextMesh>();mesh.text=text;mesh.font=font;mesh.fontSize=64;mesh.characterSize=size*.4f;mesh.anchor=TextAnchor.MiddleCenter;mesh.alignment=TextAlignment.Center;mesh.color=color;mesh.richText=false;MeshRenderer r=go.GetComponent<MeshRenderer>();r.sharedMaterial=font.material;r.sortingOrder=order;return mesh;}
+        private void RefreshSpell(){if(spellLabel!=null)spellLabel.text=selectedSpell==Spell.Fireball?"ЗАКЛИНАНИЕ: ОГНЕННЫЙ ШАР":"ЗАКЛИНАНИЕ: ШИРОКИЙ ЛУЧ";}
+        private static float SegmentDistance(Vector2 a,Vector2 b,Vector2 p){Vector2 ab=b-a;float t=ab.sqrMagnitude<.001f?0:Mathf.Clamp01(Vector2.Dot(p-a,ab)/ab.sqrMagnitude);return Vector2.Distance(p,a+ab*t);}
         private Sprite MakeWhite(){Texture2D t=new(1,1,TextureFormat.RGBA32,false){filterMode=FilterMode.Point,hideFlags=HideFlags.HideAndDontSave};t.SetPixel(0,0,Color.white);t.Apply();Sprite s=Sprite.Create(t,new Rect(0,0,1,1),new Vector2(.5f,.5f),1);art.Add(t);art.Add(s);return s;}
         private static void Rebuild(Frame f){Color32[] c=new Color32[f.Outer.Length];for(int i=0;i<c.Length;i++)c[i]=f.Outer[i].a>0?f.Outer[i]:f.Flesh[i].a>0?f.Flesh[i]:f.Bones[i];f.Sprite.texture.SetPixels32(c);f.Sprite.texture.Apply(false,false);}
         private static Color32 Scorch(Color32 source,Color target,float strength){Color c=Color.Lerp(source,target,strength);c.a=source.a;return c;}
         private static Color Hex(string hex){ColorUtility.TryParseHtmlString("#"+hex,out Color c);return c;}
 
-        private sealed class Mage{public int Team,Hp;public bool Player,Alive,Moving;public Vector2 Position,Aim;public float NextShot,NextDecision,BurnUntil;public SpriteRenderer Renderer=null!;public Frame[] Idle=Array.Empty<Frame>(),Walk=Array.Empty<Frame>();}
-        private sealed class Frame{public Sprite Sprite=null!;public Color32[] Outer=Array.Empty<Color32>(),Flesh=Array.Empty<Color32>(),Bones=Array.Empty<Color32>();public int Width,Height;}
+        private enum Spell{Fireball,WideBeam}
+        private sealed class Mage{public int Team,Hp;public bool Player,Alive,Moving;public Vector2 Position,Aim;public float NextShot,NextDecision,BurnUntil;public SpriteRenderer Renderer=null!;public TextMesh? Label;public Frame[] Idle=Array.Empty<Frame>(),Walk=Array.Empty<Frame>();}
+        private sealed class Frame{public Sprite Sprite=null!;public Color32[] Outer=Array.Empty<Color32>(),Flesh=Array.Empty<Color32>(),Bones=Array.Empty<Color32>();public int Width,Height,Bob;}
         private sealed class Shot{public GameObject Object=null!;public int Team;public Vector2 Position,Velocity;public float Life;}
         private sealed class Wound{public Mage Mage=null!;public float U,V,Until,Next;public int Severity;}
         private sealed class Particle{public GameObject Object=null!;public SpriteRenderer Renderer=null!;public Vector2 Position,Velocity;public float Life,MaxLife,Gravity;}
