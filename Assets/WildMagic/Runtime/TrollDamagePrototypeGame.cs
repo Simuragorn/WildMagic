@@ -22,9 +22,10 @@ namespace WildMagic.Prototype
 
         private readonly List<Projectile> projectiles = new();
         private readonly List<Material> generatedMaterials = new();
+        private readonly List<LayeredDamageSegment> segments = new();
+        private readonly RaycastHit[] raycastHits = new RaycastHit[24];
 
         private Camera sceneCamera = null!;
-        private LayeredDamageSegment segment = null!;
         private Material emberMaterial = null!;
         private ParticleSystem emberParticles = null!;
         private ParticleSystem bloodParticles = null!;
@@ -35,7 +36,8 @@ namespace WildMagic.Prototype
         private float nextShotTime;
         private float restartEnabledAt;
         private bool restartInProgress;
-        private string status = "Наведите курсор на руку и нажмите ЛКМ";
+        private Bounds trollBounds;
+        private string status = "Наведите курсор на часть тела и нажмите ЛКМ";
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void Bootstrap()
@@ -106,6 +108,7 @@ namespace WildMagic.Prototype
             Physics.gravity = new Vector3(0f, -9.81f, 0f);
 
             GameObject cameraObject = new("Prototype Camera");
+            cameraObject.transform.SetParent(transform, false);
             cameraObject.tag = "MainCamera";
             sceneCamera = cameraObject.AddComponent<Camera>();
             sceneCamera.fieldOfView = 38f;
@@ -118,11 +121,10 @@ namespace WildMagic.Prototype
 
             CreateLighting();
             CreateEnvironment();
-            CreateLayeredArm();
+            CreateLayeredTroll();
 
-            Bounds targetBounds = segment.GetComponentInChildren<Renderer>().bounds;
-            Vector3 target = targetBounds.center + new Vector3(0f, -0.1f, 0f);
-            sceneCamera.transform.position = target + new Vector3(0.15f, 0.05f, -6.3f);
+            Vector3 target = trollBounds.center + new Vector3(0f, 0.05f, 0f);
+            sceneCamera.transform.position = target + new Vector3(0.25f, 0.15f, -8.4f);
             sceneCamera.transform.LookAt(target);
 
             uiFont = Resources.Load<Font>("RobotoMono-Regular");
@@ -130,52 +132,81 @@ namespace WildMagic.Prototype
             Cursor.lockState = CursorLockMode.None;
         }
 
-        private void CreateLayeredArm()
+        private void CreateLayeredTroll()
         {
-            GameObject armPrefab = Resources.Load<GameObject>("Models/TrollArmLayers");
-            if (armPrefab == null)
+            GameObject trollPrefab = Resources.Load<GameObject>("Models/ModularTrollLayers");
+            if (trollPrefab == null)
             {
-                Debug.LogError("TrollArmLayers model is missing from Resources/Models.");
-                status = "Не найдена модель TrollArmLayers";
+                Debug.LogError("ModularTrollLayers model is missing from Resources/Models.");
+                status = "Не найдена модель ModularTrollLayers";
                 return;
             }
 
-            GameObject armRoot = Instantiate(armPrefab);
-            armRoot.name = "Troll Arm — Layered Segment";
-            armRoot.transform.SetParent(transform, false);
-            armRoot.transform.localScale = Vector3.one * 2.35f;
-            armRoot.transform.rotation = Quaternion.Euler(0f, 168f, 0f);
+            GameObject trollRoot = Instantiate(trollPrefab);
+            trollRoot.name = "Modular Troll — Layered Creature";
+            trollRoot.transform.SetParent(transform, false);
+            trollRoot.transform.localScale = Vector3.one * 1.38f;
+            trollRoot.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
 
-            Renderer skin = FindRenderer(armRoot, "Arm_L_Skin");
-            Renderer flesh = FindRenderer(armRoot, "Arm_L_Flesh");
-            Renderer bone = FindRenderer(armRoot, "Arm_L_Bone");
-
-            Vector3 desiredCenter = new(0f, 1.62f, 0f);
-            armRoot.transform.position += desiredCenter - skin.bounds.center;
-
+            string[] segmentNames = { "Torso", "Head", "Arm_L", "Arm_R", "Leg_L", "Leg_R" };
+            string[] displayNames = { "корпус", "голова", "левая рука", "правая рука", "левая нога", "правая нога" };
             Shader damageShader = Shader.Find("WildMagic/LayeredDamageCutout");
-            Material skinMaterial = CreateDamageMaterial(
-                damageShader,
-                "Troll Skin",
-                new Color(0.25f, 0.48f, 0.20f),
-                new Color(0.20f, 0.022f, 0.012f),
-                0.004f);
-            Material fleshMaterial = CreateDamageMaterial(
-                damageShader,
-                "Troll Flesh",
-                new Color(0.63f, 0.045f, 0.035f),
-                new Color(0.34f, 0.018f, 0.012f),
-                0.003f);
-            Material boneMaterial = CreateDamageMaterial(
-                damageShader,
-                "Troll Bone",
-                new Color(0.78f, 0.68f, 0.48f),
-                new Color(0.28f, 0.18f, 0.08f),
-                0.0015f);
 
-            segment = armRoot.AddComponent<LayeredDamageSegment>();
-            segment.Initialize(skin, flesh, bone, skinMaterial, fleshMaterial, boneMaterial);
-            segment.StatusChanged += value => status = value;
+            bool hasBounds = false;
+            for (int index = 0; index < segmentNames.Length; index++)
+            {
+                string segmentName = segmentNames[index];
+                string displayName = displayNames[index];
+                Renderer skin = FindRenderer(trollRoot, $"{segmentName}_Skin");
+                Renderer flesh = FindRenderer(trollRoot, $"{segmentName}_Flesh");
+                Renderer bone = FindRenderer(trollRoot, $"{segmentName}_Bone");
+
+                GameObject segmentRoot = new($"{segmentName} — Damage Segment");
+                segmentRoot.transform.SetParent(trollRoot.transform, false);
+                skin.transform.SetParent(segmentRoot.transform, true);
+                flesh.transform.SetParent(segmentRoot.transform, true);
+                bone.transform.SetParent(segmentRoot.transform, true);
+
+                LayeredDamageSegment damageSegment = segmentRoot.AddComponent<LayeredDamageSegment>();
+                damageSegment.Initialize(
+                    skin,
+                    flesh,
+                    bone,
+                    CreateDamageMaterial(
+                        damageShader,
+                        $"{segmentName} Skin",
+                        new Color(0.25f, 0.48f, 0.20f),
+                        new Color(0.20f, 0.022f, 0.012f),
+                        0.004f),
+                    CreateDamageMaterial(
+                        damageShader,
+                        $"{segmentName} Flesh",
+                        new Color(0.63f, 0.045f, 0.035f),
+                        new Color(0.34f, 0.018f, 0.012f),
+                        0.003f),
+                    CreateDamageMaterial(
+                        damageShader,
+                        $"{segmentName} Bone",
+                        new Color(0.78f, 0.68f, 0.48f),
+                        new Color(0.28f, 0.18f, 0.08f),
+                        0.0015f));
+                damageSegment.StatusChanged += value => status = $"{displayName}: {value}";
+                segments.Add(damageSegment);
+
+                if (!hasBounds)
+                {
+                    trollBounds = skin.bounds;
+                    hasBounds = true;
+                }
+                else
+                {
+                    trollBounds.Encapsulate(skin.bounds);
+                }
+            }
+
+            Vector3 alignment = new(-trollBounds.center.x, 0.08f - trollBounds.min.y, -trollBounds.center.z);
+            trollRoot.transform.position += alignment;
+            trollBounds.center += alignment;
 
             emberMaterial = CreateSimpleMaterial("Impact Ember", new Color(1f, 0.27f, 0.035f), true);
             Material emberParticleMaterial = CreateParticleMaterial(
@@ -192,27 +223,12 @@ namespace WildMagic.Prototype
                 "Pooled Blood Particles",
                 bloodParticleMaterial,
                 3.2f);
-
-            CreateMount(skin.bounds);
-        }
-
-        private void CreateMount(Bounds armBounds)
-        {
-            Vector3 shoulder = new(
-                armBounds.min.x - 0.18f,
-                armBounds.max.y - 0.22f,
-                armBounds.center.z + 0.32f);
-            GameObject mount = CreateCube(
-                "Stone Test Mount",
-                shoulder + new Vector3(-0.48f, 0f, 0.18f),
-                new Vector3(1.15f, 0.34f, 0.48f),
-                new Color(0.12f, 0.16f, 0.20f));
-            mount.transform.rotation = Quaternion.Euler(0f, 168f, 0f);
         }
 
         private void CreateLighting()
         {
             GameObject keyObject = new("Key Light");
+            keyObject.transform.SetParent(transform, false);
             Light key = keyObject.AddComponent<Light>();
             key.type = LightType.Directional;
             key.color = new Color(1f, 0.91f, 0.78f);
@@ -221,12 +237,23 @@ namespace WildMagic.Prototype
             keyObject.transform.rotation = Quaternion.Euler(42f, -32f, 0f);
 
             GameObject rimObject = new("Cold Rim Light");
+            rimObject.transform.SetParent(transform, false);
             Light rim = rimObject.AddComponent<Light>();
             rim.type = LightType.Point;
             rim.color = new Color(0.24f, 0.55f, 1f);
             rim.intensity = 5.5f;
             rim.range = 8f;
             rimObject.transform.position = new Vector3(2.4f, 2.7f, 1.8f);
+
+            GameObject fillObject = new("Front Fill Light");
+            fillObject.transform.SetParent(transform, false);
+            Light fill = fillObject.AddComponent<Light>();
+            fill.type = LightType.Point;
+            fill.color = new Color(0.72f, 0.86f, 1f);
+            fill.intensity = 2.3f;
+            fill.range = 10f;
+            fill.shadows = LightShadows.None;
+            fillObject.transform.position = new Vector3(-0.8f, 2.6f, -4.5f);
         }
 
         private void CreateEnvironment()
@@ -358,22 +385,31 @@ namespace WildMagic.Prototype
         private void TryShoot(Vector2 screenPosition)
         {
             Ray ray = sceneCamera.ScreenPointToRay(screenPosition);
-            if (!Physics.Raycast(ray, out RaycastHit hit, 50f))
+            int hitCount = Physics.RaycastNonAlloc(ray, raycastHits, 50f);
+            LayeredDamageSegment? target = null;
+            Vector3 targetPoint = default;
+            float nearestSurface = float.PositiveInfinity;
+            for (int index = 0; index < hitCount; index++)
             {
-                status = "Выстрел прошёл мимо — наведитесь на руку";
-                return;
+                LayeredDamageSegment? candidate =
+                    raycastHits[index].collider.GetComponentInParent<LayeredDamageSegment>();
+                if (candidate == null || !candidate.TryGetSurfacePoint(ray, out Vector3 surfacePoint))
+                    continue;
+
+                float distance = (surfacePoint - ray.origin).sqrMagnitude;
+                if (distance >= nearestSurface)
+                    continue;
+
+                nearestSurface = distance;
+                target = candidate;
+                targetPoint = surfacePoint;
             }
 
-            LayeredDamageSegment? target = hit.collider.GetComponentInParent<LayeredDamageSegment>();
             if (target == null)
             {
-                status = "Нужно попасть именно в руку";
+                status = "Выстрел прошёл мимо — наведитесь на часть тела";
                 return;
             }
-
-            Vector3 targetPoint = target.TryGetSurfacePoint(ray, out Vector3 surfacePoint)
-                ? surfacePoint
-                : hit.point;
 
             nextShotTime = Time.time + 0.24f;
             Vector3 start = sceneCamera.transform.position
@@ -460,9 +496,9 @@ namespace WildMagic.Prototype
             GUI.DrawTexture(panel, Texture2D.whiteTexture);
             GUI.color = previousColor;
 
-            GUI.Label(new Rect(44f, 36f, 480f, 34f), "ТЕСТ СЛОЁВ ТРОЛЛЯ", titleStyle);
+            GUI.Label(new Rect(44f, 36f, 480f, 34f), "МОДУЛЬНЫЙ ТРОЛЛЬ", titleStyle);
             GUI.Label(new Rect(44f, 75f, 470f, 48f),
-                "ЛКМ — огненный шар по руке\nR — восстановить тест",
+                "ЛКМ — огненный шар по части тела\nR — восстановить тролля",
                 bodyStyle);
             GUI.Label(new Rect(44f, 129f, 470f, 48f), status, statusStyle);
 
@@ -473,8 +509,8 @@ namespace WildMagic.Prototype
             GUI.Label(new Rect(stages.x + 20f, stages.y + 16f, 270f, 118f),
                 "1 попадание: отверстие в коже\n" +
                 "2 попадание: повреждение плоти\n" +
-                "3 попадание: отсечение\n" +
-                "После отсечения можно стрелять дальше",
+                "3 попадание: отсечение сегмента\n" +
+                "Каждая часть повреждается отдельно",
                 bodyStyle);
         }
 
