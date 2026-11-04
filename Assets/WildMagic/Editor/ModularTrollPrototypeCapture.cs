@@ -66,6 +66,16 @@ namespace WildMagic.Prototype.Editor
                 camera.aspect = Width / (float)Height;
                 camera.targetTexture = target;
 
+                string directory = Path.GetFullPath(Path.Combine(Application.dataPath, "../Artifacts"));
+                Directory.CreateDirectory(directory);
+                RenderTexture.active = target;
+                camera.Render();
+                image.ReadPixels(new Rect(0, 0, Width, Height), 0, 0, false);
+                image.Apply(false, false);
+                string intactPath = Path.Combine(directory, "HighFidelityModularTrollIntactPreview.png");
+                File.WriteAllBytes(intactPath, image.EncodeToPNG());
+                Debug.Log($"Intact modular troll captured: {intactPath}");
+
                 LayeredDamageSegment[] segments = root.GetComponentsInChildren<LayeredDamageSegment>(true);
                 foreach (LayeredDamageSegment segment in segments)
                 {
@@ -98,8 +108,6 @@ namespace WildMagic.Prototype.Editor
                 image.ReadPixels(new Rect(0, 0, Width, Height), 0, 0, false);
                 image.Apply(false, false);
 
-                string directory = Path.GetFullPath(Path.Combine(Application.dataPath, "../Artifacts"));
-                Directory.CreateDirectory(directory);
                 string outputPath = Path.Combine(directory, "ModularTrollPrototypePreview.png");
                 File.WriteAllBytes(outputPath, image.EncodeToPNG());
                 Debug.Log($"Modular troll prototype captured: {outputPath}");

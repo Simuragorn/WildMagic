@@ -13,3 +13,5 @@
 
 *.png binary
 *.ttf binary
+*.glb binary
+*.fbx binary

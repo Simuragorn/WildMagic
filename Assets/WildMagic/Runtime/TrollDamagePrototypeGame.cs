@@ -145,7 +145,10 @@ namespace WildMagic.Prototype
             GameObject trollRoot = Instantiate(trollPrefab);
             trollRoot.name = "Modular Troll — Layered Creature";
             trollRoot.transform.SetParent(transform, false);
-            trollRoot.transform.localScale = Vector3.one * 1.38f;
+            // The recovered Hunyuan sculpt is authored at roughly 1.84 units tall.
+            // Keep the arena presentation close to the previous prototype size while
+            // preserving its native proportions and a sensible wound-to-body ratio.
+            trollRoot.transform.localScale = Vector3.one * 2.05f;
             trollRoot.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
 
             string[] segmentNames = { "Torso", "Head", "Arm_L", "Arm_R", "Leg_L", "Leg_R" };

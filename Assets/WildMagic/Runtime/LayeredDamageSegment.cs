@@ -166,7 +166,7 @@ namespace WildMagic.Prototype
             {
                 Detach(worldPoint, incomingDirection);
                 detachedNow = true;
-                SetStatus("Рука отсечена и получила физику");
+                SetStatus("Часть тела отсечена и получила физику");
             }
             else
             {
