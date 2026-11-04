@@ -5,7 +5,9 @@
 The prefab contains three aligned meshes:
 
 - `Arm_L_Skin` — exterior surface used for the first damage layer;
-- `Arm_L_Flesh` — simplified closed inner volume;
+- `Arm_L_Flesh` — evenly inset copy of the exterior, providing continuous flesh behind every wound;
 - `Arm_L_Bone` — a stylized internal skeleton.
 
 The source sculpt was generated locally with Hunyuan3D and prepared in Blender. It is not a final production asset: the topology, anatomy and rig still require a dedicated game-ready pass. The Unity prototype stores wound positions in each mesh's object space so the damage remains attached after the segment becomes a physics object.
+
+`Tools/Blender/repair_troll_arm_layers.py` reproduces the final continuous flesh shell and keeps the skeleton inside it when the FBX is rebuilt.

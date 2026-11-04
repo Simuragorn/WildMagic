@@ -10,7 +10,7 @@ namespace WildMagic.Prototype
     /// </summary>
     public sealed class LayeredDamageSegment : MonoBehaviour
     {
-        private const int MaxDamagePoints = 12;
+        private const int MaxDamagePoints = 32;
 
         private readonly List<Vector4> skinDamage = new();
         private readonly List<Vector4> fleshDamage = new();
@@ -134,7 +134,7 @@ namespace WildMagic.Prototype
             AddPoint(skinRenderer, skinMaterial, skinDamage, skinDamageBuffer,
                 "_DamagePoints", "_DamageCount", worldPoint, skinRadius);
             AddPoint(fleshRenderer, fleshMaterial, fleshReveal, fleshRevealBuffer,
-                "_RevealPoints", "_RevealCount", worldPoint, skinRadius * 0.94f);
+                "_RevealPoints", "_RevealCount", worldPoint, skinRadius * 1.28f);
 
             bool fleshWasDamaged = hitCount >= 2;
             if (fleshWasDamaged)
@@ -143,7 +143,7 @@ namespace WildMagic.Prototype
                 AddPoint(fleshRenderer, fleshMaterial, fleshDamage, fleshDamageBuffer,
                     "_DamagePoints", "_DamageCount", worldPoint, fleshRadius);
                 AddPoint(boneRenderer, boneMaterial, boneReveal, boneRevealBuffer,
-                    "_RevealPoints", "_RevealCount", worldPoint, fleshRadius * 0.9f);
+                    "_RevealPoints", "_RevealCount", worldPoint, fleshRadius * 1.55f);
             }
 
             bool boneWasDamaged = IsDetached && hitCount >= 4;
@@ -192,16 +192,72 @@ namespace WildMagic.Prototype
             Vector3 worldPoint,
             float worldRadius)
         {
-            if (points.Count >= MaxDamagePoints)
-                points.RemoveAt(0);
-
             Transform targetTransform = targetRenderer.transform;
             Vector3 localPoint = targetTransform.InverseTransformPoint(worldPoint);
             Vector3 scale = targetTransform.lossyScale;
             float averageScale = Mathf.Max(0.0001f,
                 (Mathf.Abs(scale.x) + Mathf.Abs(scale.y) + Mathf.Abs(scale.z)) / 3f);
-            points.Add(new Vector4(localPoint.x, localPoint.y, localPoint.z, worldRadius / averageScale));
+            Vector4 newPoint = new(localPoint.x, localPoint.y, localPoint.z, worldRadius / averageScale);
+            AddOrMergePermanentPoint(points, newPoint);
             ApplyPoints(targetMaterial, arrayProperty, countProperty, points, buffer);
+        }
+
+        private static void AddOrMergePermanentPoint(List<Vector4> points, Vector4 newPoint)
+        {
+            int nearestIndex = -1;
+            float nearestDistance = float.PositiveInfinity;
+            for (int index = 0; index < points.Count; index++)
+            {
+                Vector3 existingCenter = points[index];
+                float distance = Vector3.Distance(existingCenter, newPoint);
+                if (distance < nearestDistance)
+                {
+                    nearestDistance = distance;
+                    nearestIndex = index;
+                }
+
+                float overlapDistance = (points[index].w + newPoint.w) * 0.72f;
+                if (distance > overlapDistance)
+                    continue;
+
+                points[index] = MergeSpheres(points[index], newPoint, 0.08f);
+                return;
+            }
+
+            if (points.Count < MaxDamagePoints)
+            {
+                points.Add(newPoint);
+                return;
+            }
+
+            // Never discard an old wound. Once the fixed shader buffer is full, combine the
+            // nearest wound and the new one into a sphere that contains both damaged regions.
+            points[nearestIndex] = MergeSpheres(points[nearestIndex], newPoint, 0f);
+        }
+
+        private static Vector4 MergeSpheres(Vector4 first, Vector4 second, float repeatedHitGrowth)
+        {
+            Vector3 firstCenter = first;
+            Vector3 secondCenter = second;
+            float distance = Vector3.Distance(firstCenter, secondCenter);
+
+            if (distance + second.w <= first.w)
+            {
+                first.w += Mathf.Min(first.w, second.w) * repeatedHitGrowth;
+                return first;
+            }
+            if (distance + first.w <= second.w)
+            {
+                second.w += Mathf.Min(first.w, second.w) * repeatedHitGrowth;
+                return second;
+            }
+
+            float radius = (distance + first.w + second.w) * 0.5f;
+            Vector3 center = distance > 0.00001f
+                ? firstCenter + (secondCenter - firstCenter) * ((radius - first.w) / distance)
+                : firstCenter;
+            radius += Mathf.Min(first.w, second.w) * repeatedHitGrowth;
+            return new Vector4(center.x, center.y, center.z, radius);
         }
 
         private static void ApplyPoints(

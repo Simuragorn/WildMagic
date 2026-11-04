@@ -33,6 +33,8 @@ namespace WildMagic.Prototype
         private GUIStyle? bodyStyle;
         private GUIStyle? statusStyle;
         private float nextShotTime;
+        private float restartEnabledAt;
+        private bool restartInProgress;
         private string status = "Наведите курсор на руку и нажмите ЛКМ";
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
@@ -49,15 +51,22 @@ namespace WildMagic.Prototype
 
         private void Awake()
         {
+            restartEnabledAt = Time.unscaledTime + 0.3f;
             BuildScene();
         }
 
         private void Update()
         {
             Keyboard? keyboard = Keyboard.current;
-            if (keyboard != null && keyboard.rKey.wasPressedThisFrame)
+            if (!restartInProgress
+                && keyboard != null
+                && keyboard.rKey.wasPressedThisFrame
+                && Time.unscaledTime >= restartEnabledAt)
             {
-                SceneManager.LoadScene(SceneManager.GetActiveScene().name);
+                restartInProgress = true;
+                status = "Перезапуск теста...";
+                SceneManager.LoadSceneAsync("TrollDamagePrototype", LoadSceneMode.Single);
+                enabled = false;
                 return;
             }
 

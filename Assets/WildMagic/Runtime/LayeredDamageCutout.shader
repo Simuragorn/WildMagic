@@ -36,7 +36,7 @@ Shader "WildMagic/LayeredDamageCutout"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
 
-            #define MAX_DAMAGE_POINTS 12
+            #define MAX_DAMAGE_POINTS 32
 
             CBUFFER_START(UnityPerMaterial)
                 half4 _BaseColor;
@@ -138,7 +138,7 @@ Shader "WildMagic/LayeredDamageCutout"
 
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
 
-            #define MAX_DAMAGE_POINTS 12
+            #define MAX_DAMAGE_POINTS 32
 
             CBUFFER_START(UnityPerMaterial)
                 half4 _BaseColor;

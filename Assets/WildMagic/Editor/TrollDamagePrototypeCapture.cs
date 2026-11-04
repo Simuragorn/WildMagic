@@ -112,12 +112,12 @@ namespace WildMagic.Prototype.Editor
                 skinMaterial.SetVectorArray("_DamagePoints", DamageArray(skinDamagePoint, 0.064f));
                 fleshMaterial.SetFloat("_RequireReveal", 1f);
                 fleshMaterial.SetInt("_RevealCount", 1);
-                fleshMaterial.SetVectorArray("_RevealPoints", DamageArray(fleshDamagePoint, 0.060f));
+                fleshMaterial.SetVectorArray("_RevealPoints", DamageArray(fleshDamagePoint, 0.082f));
                 fleshMaterial.SetInt("_DamageCount", 1);
                 fleshMaterial.SetVectorArray("_DamagePoints", DamageArray(fleshDamagePoint, 0.035f));
                 boneMaterial.SetFloat("_RequireReveal", 1f);
                 boneMaterial.SetInt("_RevealCount", 1);
-                boneMaterial.SetVectorArray("_RevealPoints", DamageArray(boneDamagePoint, 0.032f));
+                boneMaterial.SetVectorArray("_RevealPoints", DamageArray(boneDamagePoint, 0.058f));
                 boneMaterial.SetInt("_DamageCount", 0);
 
                 GameObject keyObject = new("Key Light");
@@ -170,7 +170,7 @@ namespace WildMagic.Prototype.Editor
 
         private static Vector4[] DamageArray(Vector3 point, float radius)
         {
-            Vector4[] damage = new Vector4[12];
+            Vector4[] damage = new Vector4[32];
             damage[0] = new Vector4(point.x, point.y, point.z, radius);
             return damage;
         }
