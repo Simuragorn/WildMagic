@@ -121,7 +121,7 @@ namespace WildMagic.Prototype
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void Bootstrap()
         {
-            if (SceneManager.GetActiveScene().name == "TeamBattle3v3")
+            if (SceneManager.GetActiveScene().name is "TeamBattle3v3" or "TrollDamagePrototype")
                 return;
             if (FindFirstObjectByType<WildMagicArenaGame>() != null)
                 return;
