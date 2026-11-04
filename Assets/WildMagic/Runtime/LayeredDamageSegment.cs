@@ -6,7 +6,7 @@ namespace WildMagic.Prototype
 {
     /// <summary>
     /// A single anatomical segment made from nested skin, flesh and bone meshes.
-    /// Damage is stored in object space, so holes follow the segment after detachment.
+    /// Damage is stored in each layer's object space, so holes follow it after detachment.
     /// </summary>
     public sealed class LayeredDamageSegment : MonoBehaviour
     {
@@ -14,14 +14,24 @@ namespace WildMagic.Prototype
 
         private readonly List<Vector4> skinDamage = new();
         private readonly List<Vector4> fleshDamage = new();
+        private readonly List<Vector4> boneDamage = new();
+        private readonly List<Vector4> fleshReveal = new();
+        private readonly List<Vector4> boneReveal = new();
+        private readonly Vector4[] skinDamageBuffer = new Vector4[MaxDamagePoints];
+        private readonly Vector4[] fleshDamageBuffer = new Vector4[MaxDamagePoints];
+        private readonly Vector4[] boneDamageBuffer = new Vector4[MaxDamagePoints];
+        private readonly Vector4[] fleshRevealBuffer = new Vector4[MaxDamagePoints];
+        private readonly Vector4[] boneRevealBuffer = new Vector4[MaxDamagePoints];
 
         private Renderer skinRenderer = null!;
         private Renderer fleshRenderer = null!;
         private Renderer boneRenderer = null!;
         private Material skinMaterial = null!;
         private Material fleshMaterial = null!;
-        private MeshCollider skinCollider = null!;
+        private Material boneMaterial = null!;
         private BoxCollider physicsCollider = null!;
+        private Vector3[] skinVertices = Array.Empty<Vector3>();
+        private int[] skinTriangles = Array.Empty<int>();
         private Rigidbody? detachedBody;
         private int hitCount;
 
@@ -37,44 +47,110 @@ namespace WildMagic.Prototype
             Renderer bone,
             Material skinDamageMaterial,
             Material fleshDamageMaterial,
-            Material boneMaterial)
+            Material boneDamageMaterial)
         {
             skinRenderer = skin;
             fleshRenderer = flesh;
             boneRenderer = bone;
             skinMaterial = skinDamageMaterial;
             fleshMaterial = fleshDamageMaterial;
+            boneMaterial = boneDamageMaterial;
 
             skinRenderer.sharedMaterial = skinMaterial;
             fleshRenderer.sharedMaterial = fleshMaterial;
             boneRenderer.sharedMaterial = boneMaterial;
 
-            MeshFilter skinFilter = skinRenderer.GetComponent<MeshFilter>();
-            skinCollider = skinRenderer.gameObject.AddComponent<MeshCollider>();
-            skinCollider.sharedMesh = skinFilter.sharedMesh;
-            skinCollider.convex = false;
+            Mesh skinMesh = skinRenderer.GetComponent<MeshFilter>().sharedMesh;
+            skinVertices = skinMesh.vertices;
+            skinTriangles = skinMesh.triangles;
 
             physicsCollider = gameObject.AddComponent<BoxCollider>();
             ConfigurePhysicsCollider();
-            physicsCollider.enabled = false;
+            physicsCollider.enabled = true;
 
-            ApplyDamagePoints(skinMaterial, skinDamage);
-            ApplyDamagePoints(fleshMaterial, fleshDamage);
+            skinMaterial.SetFloat("_RequireReveal", 0f);
+            fleshMaterial.SetFloat("_RequireReveal", 1f);
+            boneMaterial.SetFloat("_RequireReveal", 1f);
+            ApplyPoints(skinMaterial, "_DamagePoints", "_DamageCount", skinDamage, skinDamageBuffer);
+            ApplyPoints(fleshMaterial, "_DamagePoints", "_DamageCount", fleshDamage, fleshDamageBuffer);
+            ApplyPoints(boneMaterial, "_DamagePoints", "_DamageCount", boneDamage, boneDamageBuffer);
+            ApplyPoints(fleshMaterial, "_RevealPoints", "_RevealCount", fleshReveal, fleshRevealBuffer);
+            ApplyPoints(boneMaterial, "_RevealPoints", "_RevealCount", boneReveal, boneRevealBuffer);
             SetStatus("Кожа не повреждена");
+        }
+
+        /// <summary>
+        /// Refines the broad box-collider hit against the original skin triangles. This keeps
+        /// post-detachment shots attached to the visible moving mesh without a costly MeshCollider.
+        /// </summary>
+        public bool TryGetSurfacePoint(Ray worldRay, out Vector3 worldPoint)
+        {
+            Transform skinTransform = skinRenderer.transform;
+            Vector3 localOrigin = skinTransform.InverseTransformPoint(worldRay.origin);
+            Vector3 localDirection = skinTransform.InverseTransformPoint(
+                worldRay.origin + worldRay.direction) - localOrigin;
+            if (localDirection.sqrMagnitude < 0.000001f)
+            {
+                worldPoint = default;
+                return false;
+            }
+            localDirection.Normalize();
+
+            bool found = false;
+            float closestWorldDistance = float.PositiveInfinity;
+            Vector3 closestPoint = default;
+            for (int index = 0; index < skinTriangles.Length; index += 3)
+            {
+                if (!RayIntersectsTriangle(
+                        localOrigin,
+                        localDirection,
+                        skinVertices[skinTriangles[index]],
+                        skinVertices[skinTriangles[index + 1]],
+                        skinVertices[skinTriangles[index + 2]],
+                        out float distance))
+                {
+                    continue;
+                }
+
+                Vector3 candidate = skinTransform.TransformPoint(localOrigin + localDirection * distance);
+                float worldDistance = (candidate - worldRay.origin).sqrMagnitude;
+                if (worldDistance >= closestWorldDistance)
+                    continue;
+
+                closestWorldDistance = worldDistance;
+                closestPoint = candidate;
+                found = true;
+            }
+
+            worldPoint = closestPoint;
+            return found;
         }
 
         public DamageResult ApplyHit(Vector3 worldPoint, Vector3 incomingDirection)
         {
             hitCount++;
 
-            float skinRadius = IsDetached ? 0.16f : 0.14f;
-            AddDamagePoint(skinRenderer, skinMaterial, skinDamage, worldPoint, skinRadius);
+            float skinRadius = IsDetached ? 0.17f : 0.14f;
+            AddPoint(skinRenderer, skinMaterial, skinDamage, skinDamageBuffer,
+                "_DamagePoints", "_DamageCount", worldPoint, skinRadius);
+            AddPoint(fleshRenderer, fleshMaterial, fleshReveal, fleshRevealBuffer,
+                "_RevealPoints", "_RevealCount", worldPoint, skinRadius * 0.94f);
 
             bool fleshWasDamaged = hitCount >= 2;
             if (fleshWasDamaged)
             {
-                float fleshRadius = IsDetached ? 0.105f : 0.082f;
-                AddDamagePoint(fleshRenderer, fleshMaterial, fleshDamage, worldPoint, fleshRadius);
+                float fleshRadius = IsDetached ? 0.115f : 0.082f;
+                AddPoint(fleshRenderer, fleshMaterial, fleshDamage, fleshDamageBuffer,
+                    "_DamagePoints", "_DamageCount", worldPoint, fleshRadius);
+                AddPoint(boneRenderer, boneMaterial, boneReveal, boneRevealBuffer,
+                    "_RevealPoints", "_RevealCount", worldPoint, fleshRadius * 0.9f);
+            }
+
+            bool boneWasDamaged = IsDetached && hitCount >= 4;
+            if (boneWasDamaged)
+            {
+                AddPoint(boneRenderer, boneMaterial, boneDamage, boneDamageBuffer,
+                    "_DamagePoints", "_DamageCount", worldPoint, 0.055f);
             }
 
             bool detachedNow = false;
@@ -94,20 +170,25 @@ namespace WildMagic.Prototype
             }
             else
             {
-                SetStatus("Отсечённая часть продолжает разрушаться");
+                SetStatus(boneWasDamaged
+                    ? "Разрушение продолжается — повреждена даже кость"
+                    : "Отсечённая часть продолжает разрушаться");
                 detachedBody!.AddForceAtPosition(
                     incomingDirection.normalized * 1.4f,
                     worldPoint,
                     ForceMode.Impulse);
             }
 
-            return new DamageResult(fleshWasDamaged, detachedNow);
+            return new DamageResult(fleshWasDamaged, boneWasDamaged, detachedNow);
         }
 
-        private void AddDamagePoint(
+        private static void AddPoint(
             Renderer targetRenderer,
             Material targetMaterial,
             List<Vector4> points,
+            Vector4[] buffer,
+            string arrayProperty,
+            string countProperty,
             Vector3 worldPoint,
             float worldRadius)
         {
@@ -120,17 +201,22 @@ namespace WildMagic.Prototype
             float averageScale = Mathf.Max(0.0001f,
                 (Mathf.Abs(scale.x) + Mathf.Abs(scale.y) + Mathf.Abs(scale.z)) / 3f);
             points.Add(new Vector4(localPoint.x, localPoint.y, localPoint.z, worldRadius / averageScale));
-            ApplyDamagePoints(targetMaterial, points);
+            ApplyPoints(targetMaterial, arrayProperty, countProperty, points, buffer);
         }
 
-        private static void ApplyDamagePoints(Material material, List<Vector4> points)
+        private static void ApplyPoints(
+            Material material,
+            string arrayProperty,
+            string countProperty,
+            List<Vector4> points,
+            Vector4[] buffer)
         {
-            Vector4[] values = new Vector4[MaxDamagePoints];
+            Array.Clear(buffer, 0, buffer.Length);
             for (int index = 0; index < points.Count; index++)
-                values[index] = points[index];
+                buffer[index] = points[index];
 
-            material.SetInt("_DamageCount", points.Count);
-            material.SetVectorArray("_DamagePoints", values);
+            material.SetInt(countProperty, points.Count);
+            material.SetVectorArray(arrayProperty, buffer);
         }
 
         private void ConfigurePhysicsCollider()
@@ -150,8 +236,6 @@ namespace WildMagic.Prototype
         private void Detach(Vector3 hitPoint, Vector3 incomingDirection)
         {
             transform.SetParent(null, true);
-            skinCollider.enabled = false;
-            physicsCollider.enabled = true;
 
             detachedBody = gameObject.AddComponent<Rigidbody>();
             detachedBody.mass = 3.2f;
@@ -166,6 +250,46 @@ namespace WildMagic.Prototype
             detachedBody.AddTorque(new Vector3(0.4f, -0.2f, 1.1f), ForceMode.Impulse);
         }
 
+        private static bool RayIntersectsTriangle(
+            Vector3 origin,
+            Vector3 direction,
+            Vector3 vertex0,
+            Vector3 vertex1,
+            Vector3 vertex2,
+            out float distance)
+        {
+            const float epsilon = 0.000001f;
+            Vector3 edge1 = vertex1 - vertex0;
+            Vector3 edge2 = vertex2 - vertex0;
+            Vector3 p = Vector3.Cross(direction, edge2);
+            float determinant = Vector3.Dot(edge1, p);
+            if (Mathf.Abs(determinant) < epsilon)
+            {
+                distance = 0f;
+                return false;
+            }
+
+            float inverseDeterminant = 1f / determinant;
+            Vector3 t = origin - vertex0;
+            float u = Vector3.Dot(t, p) * inverseDeterminant;
+            if (u < 0f || u > 1f)
+            {
+                distance = 0f;
+                return false;
+            }
+
+            Vector3 q = Vector3.Cross(t, edge1);
+            float v = Vector3.Dot(direction, q) * inverseDeterminant;
+            if (v < 0f || u + v > 1f)
+            {
+                distance = 0f;
+                return false;
+            }
+
+            distance = Vector3.Dot(edge2, q) * inverseDeterminant;
+            return distance > epsilon;
+        }
+
         private void SetStatus(string value)
         {
             StatusText = value;
@@ -174,13 +298,15 @@ namespace WildMagic.Prototype
 
         public readonly struct DamageResult
         {
-            public DamageResult(bool fleshDamaged, bool detached)
+            public DamageResult(bool fleshDamaged, bool boneDamaged, bool detached)
             {
                 FleshDamaged = fleshDamaged;
+                BoneDamaged = boneDamaged;
                 Detached = detached;
             }
 
             public bool FleshDamaged { get; }
+            public bool BoneDamaged { get; }
             public bool Detached { get; }
         }
     }

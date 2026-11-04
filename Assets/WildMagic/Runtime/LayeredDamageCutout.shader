@@ -6,6 +6,7 @@ Shader "WildMagic/LayeredDamageCutout"
         _BurnColor ("Burn Edge", Color) = (0.08, 0.015, 0.008, 1)
         _BurnWidth ("Burn Width", Range(0, 0.1)) = 0.025
         _Smoothness ("Smoothness", Range(0, 1)) = 0.12
+        _RequireReveal ("Require Damage Reveal", Float) = 0
     }
 
     SubShader
@@ -44,6 +45,9 @@ Shader "WildMagic/LayeredDamageCutout"
                 half _Smoothness;
                 float4 _DamagePoints[MAX_DAMAGE_POINTS];
                 int _DamageCount;
+                float4 _RevealPoints[MAX_DAMAGE_POINTS];
+                int _RevealCount;
+                half _RequireReveal;
             CBUFFER_END
 
             struct Attributes
@@ -74,6 +78,19 @@ Shader "WildMagic/LayeredDamageCutout"
 
             half4 Frag(Varyings input) : SV_Target
             {
+                if (_RequireReveal > 0.5h)
+                {
+                    float revealDistance = -1000.0;
+                    [loop]
+                    for (int revealIndex = 0; revealIndex < _RevealCount; revealIndex++)
+                    {
+                        float insideReveal = _RevealPoints[revealIndex].w
+                            - distance(input.positionOS, _RevealPoints[revealIndex].xyz);
+                        revealDistance = max(revealDistance, insideReveal);
+                    }
+                    clip(revealDistance);
+                }
+
                 float nearestWound = 1000.0;
                 [loop]
                 for (int index = 0; index < _DamageCount; index++)
@@ -130,6 +147,9 @@ Shader "WildMagic/LayeredDamageCutout"
                 half _Smoothness;
                 float4 _DamagePoints[MAX_DAMAGE_POINTS];
                 int _DamageCount;
+                float4 _RevealPoints[MAX_DAMAGE_POINTS];
+                int _RevealCount;
+                half _RequireReveal;
             CBUFFER_END
 
             struct Attributes
@@ -153,6 +173,19 @@ Shader "WildMagic/LayeredDamageCutout"
 
             half4 ShadowFrag(Varyings input) : SV_Target
             {
+                if (_RequireReveal > 0.5h)
+                {
+                    float revealDistance = -1000.0;
+                    [loop]
+                    for (int revealIndex = 0; revealIndex < _RevealCount; revealIndex++)
+                    {
+                        float insideReveal = _RevealPoints[revealIndex].w
+                            - distance(input.positionOS, _RevealPoints[revealIndex].xyz);
+                        revealDistance = max(revealDistance, insideReveal);
+                    }
+                    clip(revealDistance);
+                }
+
                 float nearestWound = 1000.0;
                 [loop]
                 for (int index = 0; index < _DamageCount; index++)

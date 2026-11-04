@@ -12,11 +12,13 @@ namespace WildMagic.Prototype.Editor
         private const string ScenePath = "Assets/Scenes/TrollDamagePrototype.unity";
         private const string PipelinePath = "Assets/Settings/UniversalRP.asset";
         private const string Renderer3DPath = "Assets/Settings/Universal3DRenderer.asset";
+        private const string ModelPath = "Assets/WildMagic/Resources/Models/TrollArmLayers.fbx";
 
         [MenuItem("Wild Magic/Create Troll Damage Prototype Scene")]
         public static void CreateScene()
         {
             Ensure3DRenderer();
+            EnsureModelReadable();
             Scene scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
             scene.name = "TrollDamagePrototype";
             EditorSceneManager.SaveScene(scene, ScenePath);
@@ -76,6 +78,16 @@ namespace WildMagic.Prototype.Editor
             }
 
             AssetDatabase.SaveAssets();
+        }
+
+        private static void EnsureModelReadable()
+        {
+            ModelImporter importer = AssetImporter.GetAtPath(ModelPath) as ModelImporter;
+            if (importer == null || importer.isReadable)
+                return;
+
+            importer.isReadable = true;
+            importer.SaveAndReimport();
         }
 
         public static void CreateSceneForAutomation()

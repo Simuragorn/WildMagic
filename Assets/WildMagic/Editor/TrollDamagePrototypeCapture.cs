@@ -106,10 +106,19 @@ namespace WildMagic.Prototype.Editor
 
                 Vector3 skinDamagePoint = skin.transform.InverseTransformPoint(woundHit.point);
                 Vector3 fleshDamagePoint = flesh.transform.InverseTransformPoint(woundHit.point);
+                Vector3 boneDamagePoint = bone.transform.InverseTransformPoint(woundHit.point);
+                skinMaterial.SetFloat("_RequireReveal", 0f);
                 skinMaterial.SetInt("_DamageCount", 1);
                 skinMaterial.SetVectorArray("_DamagePoints", DamageArray(skinDamagePoint, 0.064f));
+                fleshMaterial.SetFloat("_RequireReveal", 1f);
+                fleshMaterial.SetInt("_RevealCount", 1);
+                fleshMaterial.SetVectorArray("_RevealPoints", DamageArray(fleshDamagePoint, 0.060f));
                 fleshMaterial.SetInt("_DamageCount", 1);
                 fleshMaterial.SetVectorArray("_DamagePoints", DamageArray(fleshDamagePoint, 0.035f));
+                boneMaterial.SetFloat("_RequireReveal", 1f);
+                boneMaterial.SetInt("_RevealCount", 1);
+                boneMaterial.SetVectorArray("_RevealPoints", DamageArray(boneDamagePoint, 0.032f));
+                boneMaterial.SetInt("_DamageCount", 0);
 
                 GameObject keyObject = new("Key Light");
                 keyObject.transform.SetParent(root.transform);

@@ -26,7 +26,8 @@ namespace WildMagic.Prototype
         private Camera sceneCamera = null!;
         private LayeredDamageSegment segment = null!;
         private Material emberMaterial = null!;
-        private Material bloodMaterial = null!;
+        private ParticleSystem emberParticles = null!;
+        private ParticleSystem bloodParticles = null!;
         private Font? uiFont;
         private GUIStyle? titleStyle;
         private GUIStyle? bodyStyle;
@@ -168,7 +169,20 @@ namespace WildMagic.Prototype
             segment.StatusChanged += value => status = value;
 
             emberMaterial = CreateSimpleMaterial("Impact Ember", new Color(1f, 0.27f, 0.035f), true);
-            bloodMaterial = CreateSimpleMaterial("Fresh Blood", new Color(0.72f, 0.015f, 0.025f));
+            Material emberParticleMaterial = CreateParticleMaterial(
+                "Ember Particle Material",
+                new Color(1f, 0.20f, 0.025f));
+            Material bloodParticleMaterial = CreateParticleMaterial(
+                "Blood Particle Material",
+                new Color(0.72f, 0.015f, 0.025f));
+            emberParticles = CreateImpactParticleSystem(
+                "Pooled Ember Particles",
+                emberParticleMaterial,
+                1.15f);
+            bloodParticles = CreateImpactParticleSystem(
+                "Pooled Blood Particles",
+                bloodParticleMaterial,
+                3.2f);
 
             CreateMount(skin.bounds);
         }
@@ -265,6 +279,62 @@ namespace WildMagic.Prototype
             return material;
         }
 
+        private Material CreateParticleMaterial(string name, Color color)
+        {
+            Shader shader = Shader.Find("Universal Render Pipeline/Particles/Unlit");
+            if (shader == null)
+                shader = Shader.Find("Universal Render Pipeline/Unlit");
+
+            Material material = new(shader)
+            {
+                name = name,
+                color = color
+            };
+            material.SetColor("_BaseColor", color);
+            generatedMaterials.Add(material);
+            return material;
+        }
+
+        private ParticleSystem CreateImpactParticleSystem(
+            string name,
+            Material material,
+            float lifetime)
+        {
+            GameObject particleObject = new(name);
+            particleObject.transform.SetParent(transform, false);
+            ParticleSystem particles = particleObject.AddComponent<ParticleSystem>();
+
+            ParticleSystem.MainModule main = particles.main;
+            main.loop = false;
+            main.playOnAwake = false;
+            main.simulationSpace = ParticleSystemSimulationSpace.World;
+            main.startLifetime = lifetime;
+            main.startSpeed = 0f;
+            main.startSize = 0.035f;
+            main.gravityModifier = 0.65f;
+            main.maxParticles = 256;
+
+            ParticleSystem.EmissionModule emission = particles.emission;
+            emission.enabled = false;
+            ParticleSystem.ShapeModule shape = particles.shape;
+            shape.enabled = false;
+
+            ParticleSystem.CollisionModule collision = particles.collision;
+            collision.enabled = true;
+            collision.type = ParticleSystemCollisionType.World;
+            collision.mode = ParticleSystemCollisionMode.Collision3D;
+            collision.quality = ParticleSystemCollisionQuality.Medium;
+            collision.dampen = 0.28f;
+            collision.bounce = 0.05f;
+            collision.lifetimeLoss = 0.25f;
+
+            ParticleSystemRenderer particleRenderer = particleObject.GetComponent<ParticleSystemRenderer>();
+            particleRenderer.renderMode = ParticleSystemRenderMode.Billboard;
+            particleRenderer.sharedMaterial = material;
+            particles.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+            return particles;
+        }
+
         private static Renderer FindRenderer(GameObject root, string objectName)
         {
             foreach (Renderer renderer in root.GetComponentsInChildren<Renderer>(true))
@@ -292,6 +362,10 @@ namespace WildMagic.Prototype
                 return;
             }
 
+            Vector3 targetPoint = target.TryGetSurfacePoint(ray, out Vector3 surfacePoint)
+                ? surfacePoint
+                : hit.point;
+
             nextShotTime = Time.time + 0.24f;
             Vector3 start = sceneCamera.transform.position
                 + sceneCamera.transform.forward * 1.15f
@@ -310,7 +384,7 @@ namespace WildMagic.Prototype
                 Visual = projectileObject,
                 Target = target,
                 Start = start,
-                TargetLocalPoint = target.transform.InverseTransformPoint(hit.point),
+                TargetLocalPoint = target.transform.InverseTransformPoint(targetPoint),
                 StartedAt = Time.time
             });
         }
@@ -346,24 +420,24 @@ namespace WildMagic.Prototype
 
         private void EmitImpact(Vector3 position, Vector3 incomingDirection, bool blood)
         {
-            Material material = blood ? bloodMaterial : emberMaterial;
+            ParticleSystem particles = blood ? bloodParticles : emberParticles;
             int count = blood ? 16 : 10;
             for (int index = 0; index < count; index++)
             {
-                GameObject particle = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-                particle.name = blood ? "Blood Drop" : "Burning Fragment";
-                particle.transform.position = position + Random.insideUnitSphere * 0.035f;
-                particle.transform.localScale = Vector3.one * Random.Range(0.018f, 0.045f);
-                particle.GetComponent<Renderer>().sharedMaterial = material;
-
-                Rigidbody body = particle.AddComponent<Rigidbody>();
-                body.mass = 0.025f;
-                body.collisionDetectionMode = CollisionDetectionMode.ContinuousSpeculative;
                 Vector3 scatter = -incomingDirection * Random.Range(0.25f, 1.1f)
                     + Random.insideUnitSphere * 1.35f
                     + Vector3.up * Random.Range(0.25f, 1.1f);
-                body.AddForce(scatter, ForceMode.Impulse);
-                Destroy(particle, blood ? 3.5f : 1.3f);
+                ParticleSystem.EmitParams emit = new()
+                {
+                    position = position + Random.insideUnitSphere * 0.035f,
+                    velocity = scatter,
+                    startLifetime = blood ? Random.Range(2.4f, 3.5f) : Random.Range(0.7f, 1.25f),
+                    startSize = Random.Range(0.018f, 0.045f),
+                    startColor = blood
+                        ? new Color(0.72f, 0.015f, 0.025f)
+                        : new Color(1f, Random.Range(0.12f, 0.36f), 0.02f)
+                };
+                particles.Emit(emit, 1);
             }
         }
 
