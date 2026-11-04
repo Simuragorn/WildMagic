@@ -63,15 +63,18 @@ namespace WildMagic.Prototype.Editor
                 Material skinMaterial = CreateDamageMaterial(
                     damageShader,
                     new Color(0.25f, 0.48f, 0.20f),
-                    new Color(0.07f, 0.025f, 0.012f));
+                    new Color(0.20f, 0.022f, 0.012f),
+                    0.004f);
                 Material fleshMaterial = CreateDamageMaterial(
                     damageShader,
                     new Color(0.63f, 0.045f, 0.035f),
-                    new Color(0.16f, 0.012f, 0.008f));
+                    new Color(0.34f, 0.018f, 0.012f),
+                    0.003f);
                 Material boneMaterial = CreateDamageMaterial(
                     damageShader,
                     new Color(0.78f, 0.68f, 0.48f),
-                    new Color(0.28f, 0.18f, 0.08f));
+                    new Color(0.28f, 0.18f, 0.08f),
+                    0.0015f);
                 skin.sharedMaterial = skinMaterial;
                 flesh.sharedMaterial = fleshMaterial;
                 bone.sharedMaterial = boneMaterial;
@@ -185,12 +188,16 @@ namespace WildMagic.Prototype.Editor
             throw new MissingComponentException(name);
         }
 
-        private static Material CreateDamageMaterial(Shader shader, Color color, Color burn)
+        private static Material CreateDamageMaterial(
+            Shader shader,
+            Color color,
+            Color burn,
+            float burnWidth)
         {
             Material material = new(shader);
             material.SetColor("_BaseColor", color);
             material.SetColor("_BurnColor", burn);
-            material.SetFloat("_BurnWidth", 0.03f);
+            material.SetFloat("_BurnWidth", burnWidth);
             return material;
         }
 

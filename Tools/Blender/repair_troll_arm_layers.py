@@ -46,7 +46,7 @@ for material in old_flesh.data.materials:
 activate(flesh)
 bpy.ops.object.mode_set(mode="EDIT")
 bpy.ops.mesh.select_all(action="SELECT")
-bpy.ops.transform.shrink_fatten(value=-0.022, use_even_offset=True)
+bpy.ops.transform.shrink_fatten(value=-0.0025, use_even_offset=True)
 bpy.ops.mesh.normals_make_consistent(inside=False)
 bpy.ops.object.mode_set(mode="OBJECT")
 
@@ -54,8 +54,11 @@ bpy.data.objects.remove(old_flesh, do_unlink=True)
 flesh.name = "Arm_L_Flesh"
 flesh.data.name = "Arm_L_Flesh_Mesh"
 
-# Pull the few protruding bone tips inside the new flesh volume.
-bone.data.transform(Matrix.Scale(0.92, 4))
+# Pull protruding bone tips inward only when the incoming source still needs it.
+# This keeps the repair script idempotent instead of shrinking the skeleton again
+# every time the FBX is rebuilt.
+if any(bone.dimensions[index] > skin.dimensions[index] for index in range(3)):
+    bone.data.transform(Matrix.Scale(0.92, 4))
 
 bpy.ops.object.select_all(action="DESELECT")
 for obj in (skin, flesh, bone):

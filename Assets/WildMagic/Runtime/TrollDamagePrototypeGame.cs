@@ -158,20 +158,20 @@ namespace WildMagic.Prototype
                 damageShader,
                 "Troll Skin",
                 new Color(0.25f, 0.48f, 0.20f),
-                new Color(0.07f, 0.025f, 0.012f),
-                0.034f);
+                new Color(0.20f, 0.022f, 0.012f),
+                0.004f);
             Material fleshMaterial = CreateDamageMaterial(
                 damageShader,
                 "Troll Flesh",
                 new Color(0.63f, 0.045f, 0.035f),
-                new Color(0.16f, 0.012f, 0.008f),
-                0.025f);
+                new Color(0.34f, 0.018f, 0.012f),
+                0.003f);
             Material boneMaterial = CreateDamageMaterial(
                 damageShader,
                 "Troll Bone",
                 new Color(0.78f, 0.68f, 0.48f),
                 new Color(0.28f, 0.18f, 0.08f),
-                0.012f);
+                0.0015f);
 
             segment = armRoot.AddComponent<LayeredDamageSegment>();
             segment.Initialize(skin, flesh, bone, skinMaterial, fleshMaterial, boneMaterial);
