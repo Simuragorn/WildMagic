@@ -48,22 +48,41 @@ def material(name, color, roughness=0.75):
 
 def classify(point):
     """Assign every source triangle exactly once, leaving no intact-state gaps."""
-    x, _, z = point
+    x, y, z = point
     absolute_x = abs(x)
 
-    # The generated troll faces -Y. Its arms slope outward as they descend, so
-    # the shoulder/arm boundary follows that silhouette instead of a box cut.
-    arm_boundary = 0.38 + max(0.0, 0.50 - z) * 0.29
-    if z > -0.46 and absolute_x > arm_boundary:
-        return "Arm_L" if x > 0.0 else "Arm_R"
-
-    # The head cut sits inside the neck. Interlocking source triangles conceal
-    # the seam while intact and create an organic edge after detachment.
-    if z > 0.50:
+    # The troll has a large hunch rather than a conventional neck. Follow a
+    # slanted plane behind the face/skull so that the hump remains on the torso.
+    # A pure height cut incorrectly moved the entire trapezius with the head.
+    head_height = max(0.0, z - 0.53)
+    head_rear_limit = -0.08 + head_height * head_height * head_height * 8.00
+    if z < 0.72:
+        head_half_width = 0.18 + head_height * 1.05
+    else:
+        head_half_width = 0.38 - max(0.0, z - 0.72) * 0.35
+    if z > 0.53 and absolute_x < head_half_width and y < head_rear_limit:
         return "Head"
 
-    # Keep the belly and loincloth with the torso; legs begin below the hips.
-    if z < -0.31:
+    # The shoulder cut is an oval around the joint rather than a vertical wall.
+    # Below the deltoid, follow the outward-sloping arm down through the fingers.
+    hand_distance = ((absolute_x - 0.78) / 0.28) ** 2 + ((z + 0.38) / 0.38) ** 2
+    if z > -0.78 and hand_distance < 1.0:
+        return "Arm_L" if x > 0.0 else "Arm_R"
+    if z >= 0.10:
+        arm_boundary = 0.40 + ((z - 0.38) / 0.35) ** 2 * 0.12
+    else:
+        arm_boundary = 0.48 + (0.10 - z) * 0.30
+    if z > -0.78 and absolute_x > arm_boundary:
+        return "Arm_L" if x > 0.0 else "Arm_R"
+
+    # Retain the central, tapering loincloth with the torso instead of splitting
+    # it into two rectangular halves together with the legs. Raise the cut on
+    # the outer hips to avoid another flat horizontal boundary.
+    leg_top = -0.31 + min(0.12, max(0.0, absolute_x - 0.18) * 0.35)
+    if z < leg_top:
+        central_torso_half_width = max(0.07, 0.30 - max(0.0, -z - 0.31) * 0.52)
+        if z > -0.80 and absolute_x < central_torso_half_width:
+            return "Torso"
         return "Leg_L" if x > 0.0 else "Leg_R"
 
     return "Torso"
@@ -119,6 +138,79 @@ def flesh_from_skin(skin, name):
     flesh["segment"] = name.removesuffix("_Flesh").lower()
     flesh["damage_layer"] = "flesh"
     return flesh
+
+
+def add_skin_backing(segment, skin):
+    if segment != "Torso":
+        return skin
+    # The source troll's skull merges directly into a large hump. This hidden
+    # inner shell preserves that hump after decapitation while remaining behind
+    # the original head in the intact creature.
+    backing = sphere(
+        "Torso_HeadSocketBacking",
+        (0.0, 0.10, 0.67),
+        (0.40, 0.18, 0.27),
+        2,
+    )
+    return join([skin, backing], skin.name)
+
+
+def add_flesh_caps(segment, flesh):
+    """Add hidden organic volumes that close sockets after a part detaches."""
+    caps = []
+    if segment == "Torso":
+        caps.extend(
+            (
+                sphere("Torso_NeckStump", (0.0, -0.04, 0.60), (0.20, 0.14, 0.11), 2),
+                sphere("Torso_Shoulder_L_Stump", (0.43, 0.01, 0.35), (0.08, 0.21, 0.23), 2),
+                sphere("Torso_Shoulder_R_Stump", (-0.43, 0.01, 0.35), (0.08, 0.21, 0.23), 2),
+                sphere("Torso_Hip_L_Stump", (0.26, 0.02, -0.28), (0.15, 0.15, 0.06), 2),
+                sphere("Torso_Hip_R_Stump", (-0.26, 0.02, -0.28), (0.15, 0.15, 0.06), 2),
+            )
+        )
+    elif segment == "Head":
+        caps.append(sphere("Head_NeckStump", (0.0, -0.04, 0.58), (0.19, 0.13, 0.065), 2))
+    elif segment.startswith("Arm"):
+        sign = 1.0 if segment.endswith("L") else -1.0
+        caps.append(
+            sphere(
+                f"{segment}_ShoulderStump",
+                (0.43 * sign, 0.01, 0.35),
+                (0.08, 0.20, 0.22),
+                2,
+            )
+        )
+    else:
+        sign = 1.0 if segment.endswith("L") else -1.0
+        caps.append(
+            sphere(
+                f"{segment}_HipStump",
+                (0.26 * sign, 0.02, -0.28),
+                (0.14, 0.14, 0.06),
+                2,
+            )
+        )
+
+    if not caps:
+        return flesh
+    return join([flesh, *caps], flesh.name)
+
+
+def create_joint_anchor(segment, skin):
+    locations = {
+        "Head": (0.0, -0.02, 0.60),
+        "Arm_L": (0.43, 0.01, 0.35),
+        "Arm_R": (-0.43, 0.01, 0.35),
+        "Leg_L": (0.26, 0.02, -0.28),
+        "Leg_R": (-0.26, 0.02, -0.28),
+    }
+    if segment not in locations:
+        return None
+    anchor = bpy.data.objects.new(f"{segment}_JointAnchor", None)
+    bpy.context.collection.objects.link(anchor)
+    anchor.parent = skin
+    anchor.location = locations[segment]
+    return anchor
 
 
 def sphere(name, location, scale, subdivisions=2):
@@ -239,6 +331,25 @@ def render_preview(objects, output_path):
         obj.hide_render = not obj.name.endswith("_Skin")
     bpy.ops.render.render(write_still=True)
 
+    segment_colors = {
+        "Torso": (0.25, 0.48, 0.22, 1.0),
+        "Head": (0.78, 0.30, 0.18, 1.0),
+        "Arm_L": (0.18, 0.48, 0.78, 1.0),
+        "Arm_R": (0.16, 0.70, 0.70, 1.0),
+        "Leg_L": (0.78, 0.62, 0.16, 1.0),
+        "Leg_R": (0.72, 0.28, 0.68, 1.0),
+    }
+    scene.display.shading.color_type = "OBJECT"
+    for obj in objects:
+        for segment, color in segment_colors.items():
+            if obj.name.startswith(segment) and obj.name.endswith("_Skin"):
+                obj.color = color
+                break
+    scene.render.filepath = str(
+        output_path.with_name("HighFidelityModularTrollSegmentationPreview.png")
+    )
+    bpy.ops.render.render(write_still=True)
+
 
 def main():
     source_path, output_path, preview_path = map(Path, arguments())
@@ -264,13 +375,22 @@ def main():
     skins = split_source_mesh(source)
     bpy.data.objects.remove(source, do_unlink=True)
     export_objects = []
-    for segment, skin in skins.items():
-        flesh = flesh_from_skin(skin, f"{segment}_Flesh")
+    anchors = []
+    for segment, source_skin in skins.items():
+        skin = add_skin_backing(segment, source_skin)
+        skins[segment] = skin
+        flesh = add_flesh_caps(
+            segment,
+            flesh_from_skin(skin, f"{segment}_Flesh"),
+        )
         bone = build_bones(segment)
         assign_material(skin, skin_material)
         assign_material(flesh, flesh_material)
         assign_material(bone, bone_material)
         export_objects.extend((skin, flesh, bone))
+        anchor = create_joint_anchor(segment, skin)
+        if anchor is not None:
+            anchors.append(anchor)
 
     render_preview(export_objects, preview_path)
 
@@ -278,11 +398,13 @@ def main():
     for obj in export_objects:
         obj.hide_render = False
         obj.select_set(True)
+    for anchor in anchors:
+        anchor.select_set(True)
     bpy.context.view_layer.objects.active = skins["Torso"]
     bpy.ops.export_scene.fbx(
         filepath=str(output_path),
         use_selection=True,
-        object_types={"MESH"},
+        object_types={"MESH", "EMPTY"},
         apply_unit_scale=True,
         apply_scale_options="FBX_SCALE_UNITS",
         axis_forward="-Z",

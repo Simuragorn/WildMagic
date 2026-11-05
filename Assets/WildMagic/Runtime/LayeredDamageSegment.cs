@@ -11,6 +11,7 @@ namespace WildMagic.Prototype
     public sealed class LayeredDamageSegment : MonoBehaviour
     {
         private const int MaxDamagePoints = 32;
+        private static readonly List<LayeredDamageSegment> ActiveSegments = new();
 
         private readonly List<Vector4> skinDamage = new();
         private readonly List<Vector4> fleshDamage = new();
@@ -30,10 +31,12 @@ namespace WildMagic.Prototype
         private Material fleshMaterial = null!;
         private Material boneMaterial = null!;
         private BoxCollider physicsCollider = null!;
+        private Transform? jointAnchor;
         private Vector3[] skinVertices = Array.Empty<Vector3>();
         private int[] skinTriangles = Array.Empty<int>();
         private Rigidbody? detachedBody;
         private int hitCount;
+        private string segmentId = string.Empty;
 
         public event Action<string>? StatusChanged;
 
@@ -55,6 +58,13 @@ namespace WildMagic.Prototype
             skinMaterial = skinDamageMaterial;
             fleshMaterial = fleshDamageMaterial;
             boneMaterial = boneDamageMaterial;
+            segmentId = skinRenderer.name.EndsWith("_Skin", StringComparison.Ordinal)
+                ? skinRenderer.name[..^5]
+                : skinRenderer.name;
+            jointAnchor = skinRenderer.transform.Find($"{segmentId}_JointAnchor");
+
+            if (!ActiveSegments.Contains(this))
+                ActiveSegments.Add(this);
 
             skinRenderer.sharedMaterial = skinMaterial;
             fleshRenderer.sharedMaterial = fleshMaterial;
@@ -77,6 +87,11 @@ namespace WildMagic.Prototype
             ApplyPoints(fleshMaterial, "_RevealPoints", "_RevealCount", fleshReveal, fleshRevealBuffer);
             ApplyPoints(boneMaterial, "_RevealPoints", "_RevealCount", boneReveal, boneRevealBuffer);
             SetStatus("Кожа не повреждена");
+        }
+
+        private void OnDestroy()
+        {
+            ActiveSegments.Remove(this);
         }
 
         /// <summary>
@@ -291,6 +306,29 @@ namespace WildMagic.Prototype
 
         private void Detach(Vector3 hitPoint, Vector3 incomingDirection)
         {
+            // Reveal only the rounded caps at the severed joint. Revealing every
+            // inner shell caused red z-fighting speckles across intact skin.
+            if (jointAnchor != null)
+            {
+                float radius = segmentId switch
+                {
+                    "Head" => 0.45f,
+                    "Arm_L" or "Arm_R" => 0.52f,
+                    "Leg_L" or "Leg_R" => 0.34f,
+                    _ => 0.48f
+                };
+                Vector3 jointPoint = jointAnchor.position;
+                RevealFleshAt(jointPoint, radius);
+                foreach (LayeredDamageSegment segment in ActiveSegments)
+                {
+                    if (segment != null && segment.segmentId == "Torso")
+                    {
+                        segment.RevealFleshAt(jointPoint, radius * 1.08f);
+                        break;
+                    }
+                }
+            }
+
             transform.SetParent(null, true);
 
             detachedBody = gameObject.AddComponent<Rigidbody>();
@@ -304,6 +342,19 @@ namespace WildMagic.Prototype
                 hitPoint,
                 ForceMode.Impulse);
             detachedBody.AddTorque(new Vector3(0.4f, -0.2f, 1.1f), ForceMode.Impulse);
+        }
+
+        private void RevealFleshAt(Vector3 worldPoint, float radius)
+        {
+            AddPoint(
+                fleshRenderer,
+                fleshMaterial,
+                fleshReveal,
+                fleshRevealBuffer,
+                "_RevealPoints",
+                "_RevealCount",
+                worldPoint,
+                radius);
         }
 
         private static bool RayIntersectsTriangle(

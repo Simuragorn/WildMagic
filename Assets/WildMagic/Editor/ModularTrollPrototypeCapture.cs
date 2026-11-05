@@ -76,6 +76,9 @@ namespace WildMagic.Prototype.Editor
                 File.WriteAllBytes(intactPath, image.EncodeToPNG());
                 Debug.Log($"Intact modular troll captured: {intactPath}");
 
+                LayeredDamageSegment damagedSegment = null!;
+                Vector3 damagedPoint = default;
+                Vector3 damagedDirection = default;
                 LayeredDamageSegment[] segments = root.GetComponentsInChildren<LayeredDamageSegment>(true);
                 foreach (LayeredDamageSegment segment in segments)
                 {
@@ -100,8 +103,14 @@ namespace WildMagic.Prototype.Editor
                         throw new InvalidOperationException("The capture ray did not hit the troll head.");
                     segment.ApplyHit(woundPoint, direction);
                     segment.ApplyHit(woundPoint, direction);
+                    damagedSegment = segment;
+                    damagedPoint = woundPoint;
+                    damagedDirection = direction;
                     break;
                 }
+
+                if (damagedSegment == null)
+                    throw new MissingComponentException("Head damage segment");
 
                 RenderTexture.active = target;
                 camera.Render();
@@ -111,6 +120,15 @@ namespace WildMagic.Prototype.Editor
                 string outputPath = Path.Combine(directory, "ModularTrollPrototypePreview.png");
                 File.WriteAllBytes(outputPath, image.EncodeToPNG());
                 Debug.Log($"Modular troll prototype captured: {outputPath}");
+
+                damagedSegment.ApplyHit(damagedPoint, damagedDirection);
+                damagedSegment.transform.position += new Vector3(0.55f, 0.58f, 0f);
+                camera.Render();
+                image.ReadPixels(new Rect(0, 0, Width, Height), 0, 0, false);
+                image.Apply(false, false);
+                string detachedPath = Path.Combine(directory, "HighFidelityModularTrollDetachedPreview.png");
+                File.WriteAllBytes(detachedPath, image.EncodeToPNG());
+                Debug.Log($"Detached modular troll captured: {detachedPath}");
                 camera.targetTexture = null;
                 return outputPath;
             }
