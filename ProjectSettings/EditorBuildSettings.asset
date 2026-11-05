@@ -17,5 +17,8 @@ EditorBuildSettings:
   - enabled: 1
     path: Assets/Scenes/VoxelDamagePrototype.unity
     guid: 79ed67eff6f04ee18e1518055c34deea
+  - enabled: 1
+    path: Assets/Scenes/VoxelTrollLayerPrototype.unity
+    guid: 4390f4649985a5a4dbcb492f3dc41747
   m_configObjects:
     com.unity.input.settings.actions: {fileID: -944628639613478452, guid: 2bcd2660ca9b64942af0de543d8d7100, type: 3}
