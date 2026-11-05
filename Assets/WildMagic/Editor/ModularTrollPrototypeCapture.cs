@@ -112,6 +112,11 @@ namespace WildMagic.Prototype.Editor
                 if (damagedSegment == null)
                     throw new MissingComponentException("Head damage segment");
 
+                // A third hit in the face must deepen that wound, not detach the whole head.
+                damagedSegment.ApplyHit(damagedPoint, damagedDirection);
+                if (damagedSegment.IsDetached)
+                    throw new InvalidOperationException("A hit away from the neck detached the head.");
+
                 RenderTexture.active = target;
                 camera.Render();
                 image.ReadPixels(new Rect(0, 0, Width, Height), 0, 0, false);
@@ -121,7 +126,18 @@ namespace WildMagic.Prototype.Editor
                 File.WriteAllBytes(outputPath, image.EncodeToPNG());
                 Debug.Log($"Modular troll prototype captured: {outputPath}");
 
-                damagedSegment.ApplyHit(damagedPoint, damagedDirection);
+                if (!damagedSegment.TryGetJointSurfacePoint(out Vector3 jointHitPoint))
+                    throw new InvalidOperationException("The troll neck has no joint surface point.");
+                Vector3 jointDirection = (jointHitPoint - camera.transform.position).normalized;
+                for (int hit = 0; hit < 10 && !damagedSegment.IsDetached; hit++)
+                    damagedSegment.ApplyHit(jointHitPoint, jointDirection);
+                if (!damagedSegment.IsDetached)
+                    throw new InvalidOperationException(
+                        $"Repeated neck damage did not detach the head. " +
+                        $"Surface-to-joint distance: " +
+                        $"{Vector3.Distance(jointHitPoint, damagedSegment.JointWorldPosition):F3}; " +
+                        $"status: {damagedSegment.StatusText}");
+
                 damagedSegment.transform.position += new Vector3(0.55f, 0.58f, 0f);
                 camera.Render();
                 image.ReadPixels(new Rect(0, 0, Width, Height), 0, 0, false);
@@ -139,6 +155,78 @@ namespace WildMagic.Prototype.Editor
                 UnityEngine.Object.DestroyImmediate(target);
                 if (!string.IsNullOrEmpty(previousScenePath))
                     EditorSceneManager.OpenScene(previousScenePath, OpenSceneMode.Single);
+            }
+        }
+
+        public static void ValidateJointRulesFromCommandLine()
+        {
+            try
+            {
+                EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+                GameObject root = new("Modular Troll Joint Validation Root");
+                TrollDamagePrototypeGame game = root.AddComponent<TrollDamagePrototypeGame>();
+                MethodInfo? buildScene = typeof(TrollDamagePrototypeGame).GetMethod(
+                    "BuildScene",
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+                if (buildScene == null)
+                    throw new MissingMethodException("TrollDamagePrototypeGame.BuildScene");
+                buildScene.Invoke(game, null);
+
+                Camera camera = root.GetComponentInChildren<Camera>(true);
+                if (camera == null)
+                    throw new MissingComponentException("Prototype Camera");
+
+                LayeredDamageSegment[] segments = root.GetComponentsInChildren<LayeredDamageSegment>(true);
+                int validated = 0;
+                foreach (LayeredDamageSegment segment in segments)
+                {
+                    if (!segment.HasJoint)
+                        continue;
+
+                    Renderer skin = null!;
+                    foreach (Renderer renderer in segment.GetComponentsInChildren<Renderer>(true))
+                    {
+                        if (renderer.name.EndsWith("_Skin", StringComparison.Ordinal))
+                        {
+                            skin = renderer;
+                            break;
+                        }
+                    }
+                    if (skin == null)
+                        throw new MissingComponentException($"Skin for {segment.name}");
+
+                    Vector3 bodyDirection = (skin.bounds.center - camera.transform.position).normalized;
+                    if (!segment.TryGetSurfacePoint(
+                            new Ray(camera.transform.position, bodyDirection),
+                            out Vector3 bodyPoint))
+                    {
+                        throw new InvalidOperationException($"Could not hit the middle of {segment.name}.");
+                    }
+                    for (int hit = 0; hit < 6; hit++)
+                        segment.ApplyHit(bodyPoint, bodyDirection);
+                    if (segment.IsDetached)
+                        throw new InvalidOperationException($"Body hits detached {segment.name} away from its joint.");
+
+                    if (!segment.TryGetJointSurfacePoint(out Vector3 jointPoint))
+                        throw new InvalidOperationException($"Could not find the joint surface of {segment.name}.");
+                    Vector3 jointDirection = (jointPoint - camera.transform.position).normalized;
+                    for (int hit = 0; hit < 10 && !segment.IsDetached; hit++)
+                        segment.ApplyHit(jointPoint, jointDirection);
+                    if (!segment.IsDetached)
+                        throw new InvalidOperationException($"Joint damage did not detach {segment.name}.");
+
+                    validated++;
+                }
+
+                if (validated != 5)
+                    throw new InvalidOperationException($"Expected five detachable segments, validated {validated}.");
+                Debug.Log("JOINT_SEVER_VALIDATION_PASSED: head, both arms and both legs");
+                EditorApplication.Exit(0);
+            }
+            catch (Exception exception)
+            {
+                Debug.LogException(exception);
+                EditorApplication.Exit(1);
             }
         }
     }

@@ -11,7 +11,14 @@ namespace WildMagic.Prototype
     public sealed class LayeredDamageSegment : MonoBehaviour
     {
         private const int MaxDamagePoints = 32;
+        private const float JointSeverThreshold = 2.2f;
         private static readonly List<LayeredDamageSegment> ActiveSegments = new();
+
+        private sealed class WoundState
+        {
+            public Vector3 LocalPoint;
+            public int Depth;
+        }
 
         private readonly List<Vector4> skinDamage = new();
         private readonly List<Vector4> fleshDamage = new();
@@ -23,6 +30,7 @@ namespace WildMagic.Prototype
         private readonly Vector4[] boneDamageBuffer = new Vector4[MaxDamagePoints];
         private readonly Vector4[] fleshRevealBuffer = new Vector4[MaxDamagePoints];
         private readonly Vector4[] boneRevealBuffer = new Vector4[MaxDamagePoints];
+        private readonly List<WoundState> wounds = new();
 
         private Renderer skinRenderer = null!;
         private Renderer fleshRenderer = null!;
@@ -36,12 +44,17 @@ namespace WildMagic.Prototype
         private int[] skinTriangles = Array.Empty<int>();
         private Rigidbody? detachedBody;
         private int hitCount;
+        private float jointSeverProgress;
         private string segmentId = string.Empty;
 
         public event Action<string>? StatusChanged;
 
         public bool IsDetached => detachedBody != null;
         public int HitCount => hitCount;
+        public bool HasJoint => jointAnchor != null;
+        public Vector3 JointWorldPosition => jointAnchor != null
+            ? jointAnchor.position
+            : transform.position;
         public string StatusText { get; private set; } = "Кожа не повреждена";
 
         public void Initialize(
@@ -141,17 +154,44 @@ namespace WildMagic.Prototype
             return found;
         }
 
+        public bool TryGetJointSurfacePoint(out Vector3 worldPoint)
+        {
+            if (jointAnchor == null || skinVertices.Length == 0)
+            {
+                worldPoint = default;
+                return false;
+            }
+
+            Transform skinTransform = skinRenderer.transform;
+            Vector3 jointPoint = jointAnchor.position;
+            float closestDistance = float.PositiveInfinity;
+            Vector3 closestPoint = default;
+            foreach (Vector3 vertex in skinVertices)
+            {
+                Vector3 candidate = skinTransform.TransformPoint(vertex);
+                float distance = (candidate - jointPoint).sqrMagnitude;
+                if (distance >= closestDistance)
+                    continue;
+                closestDistance = distance;
+                closestPoint = candidate;
+            }
+
+            worldPoint = closestPoint;
+            return true;
+        }
+
         public DamageResult ApplyHit(Vector3 worldPoint, Vector3 incomingDirection)
         {
             hitCount++;
 
             float skinRadius = IsDetached ? 0.17f : 0.14f;
+            int woundDepth = RegisterWound(worldPoint, skinRadius);
             AddPoint(skinRenderer, skinMaterial, skinDamage, skinDamageBuffer,
                 "_DamagePoints", "_DamageCount", worldPoint, skinRadius);
             AddPoint(fleshRenderer, fleshMaterial, fleshReveal, fleshRevealBuffer,
                 "_RevealPoints", "_RevealCount", worldPoint, skinRadius * 1.28f);
 
-            bool fleshWasDamaged = hitCount >= 2;
+            bool fleshWasDamaged = woundDepth >= 2;
             if (fleshWasDamaged)
             {
                 float fleshRadius = IsDetached ? 0.115f : 0.082f;
@@ -161,7 +201,7 @@ namespace WildMagic.Prototype
                     "_RevealPoints", "_RevealCount", worldPoint, fleshRadius * 1.55f);
             }
 
-            bool boneWasDamaged = IsDetached && hitCount >= 4;
+            bool boneWasDamaged = woundDepth >= 3;
             if (boneWasDamaged)
             {
                 AddPoint(boneRenderer, boneMaterial, boneDamage, boneDamageBuffer,
@@ -169,19 +209,35 @@ namespace WildMagic.Prototype
             }
 
             bool detachedNow = false;
-            if (hitCount == 1)
-            {
-                SetStatus("Кожа пробита — видна плоть");
-            }
-            else if (hitCount == 2)
-            {
-                SetStatus("Плоть повреждена — обнажена кость");
-            }
-            else if (!IsDetached)
+            bool jointWasDamaged = false;
+            if (!IsDetached && boneWasDamaged)
+                jointWasDamaged = DamageJoint(worldPoint);
+
+            if (!IsDetached && jointSeverProgress >= JointSeverThreshold)
             {
                 Detach(worldPoint, incomingDirection);
                 detachedNow = true;
-                SetStatus("Часть тела отсечена и получила физику");
+                SetStatus("Соединение разрушено — часть тела отсечена");
+            }
+            else if (woundDepth == 1)
+            {
+                SetStatus("Кожа пробита — видна плоть");
+            }
+            else if (woundDepth == 2)
+            {
+                SetStatus("Плоть повреждена — обнажена кость");
+            }
+            else if (!IsDetached && jointWasDamaged)
+            {
+                int integrity = Mathf.CeilToInt(
+                    Mathf.Clamp01(1f - jointSeverProgress / JointSeverThreshold) * 100f);
+                SetStatus($"Повреждено соединение — целостность {integrity}%");
+            }
+            else if (!IsDetached)
+            {
+                SetStatus(jointAnchor == null
+                    ? "Кость повреждена — корпус остаётся цельным"
+                    : "Кость повреждена вдали от соединения — часть держится");
             }
             else
             {
@@ -195,6 +251,82 @@ namespace WildMagic.Prototype
             }
 
             return new DamageResult(fleshWasDamaged, boneWasDamaged, detachedNow);
+        }
+
+        private int RegisterWound(Vector3 worldPoint, float worldRadius)
+        {
+            Transform skinTransform = skinRenderer.transform;
+            Vector3 localPoint = skinTransform.InverseTransformPoint(worldPoint);
+            Vector3 scale = skinTransform.lossyScale;
+            float averageScale = Mathf.Max(0.0001f,
+                (Mathf.Abs(scale.x) + Mathf.Abs(scale.y) + Mathf.Abs(scale.z)) / 3f);
+            float mergeDistance = worldRadius * 1.1f / averageScale;
+
+            WoundState? nearest = null;
+            float nearestDistance = float.PositiveInfinity;
+            foreach (WoundState wound in wounds)
+            {
+                float distance = Vector3.Distance(wound.LocalPoint, localPoint);
+                if (distance >= nearestDistance)
+                    continue;
+                nearest = wound;
+                nearestDistance = distance;
+            }
+
+            if (nearest != null && nearestDistance <= mergeDistance)
+            {
+                nearest.Depth++;
+                nearest.LocalPoint = Vector3.Lerp(nearest.LocalPoint, localPoint, 0.25f);
+                return nearest.Depth;
+            }
+
+            WoundState newWound = new()
+            {
+                LocalPoint = localPoint,
+                Depth = 1
+            };
+            if (wounds.Count < MaxDamagePoints)
+                wounds.Add(newWound);
+            return newWound.Depth;
+        }
+
+        private bool DamageJoint(Vector3 worldPoint)
+        {
+            if (jointAnchor == null)
+                return false;
+
+            // The anchor sits inside the limb, so distance to its centre is a poor test:
+            // a valid shot hits the outer surface and can be quite far away in depth.
+            // Instead use a thin anatomical slab across the limb's attachment axis.
+            Vector3 localPoint = skinRenderer.transform.InverseTransformPoint(worldPoint);
+            Vector3 offset = localPoint - jointAnchor.localPosition;
+            float axialDistance;
+            float halfWidth;
+            switch (segmentId)
+            {
+                case "Head":
+                    axialDistance = Mathf.Abs(offset.z);
+                    halfWidth = 0.08f;
+                    break;
+                case "Arm_L":
+                case "Arm_R":
+                    axialDistance = Mathf.Abs(offset.x);
+                    halfWidth = 0.18f;
+                    break;
+                case "Leg_L":
+                case "Leg_R":
+                    axialDistance = Mathf.Abs(offset.z);
+                    halfWidth = 0.16f;
+                    break;
+                default:
+                    return false;
+            }
+            if (axialDistance > halfWidth)
+                return false;
+
+            float proximity = 1f - axialDistance / halfWidth;
+            jointSeverProgress += Mathf.Lerp(0.45f, 1f, proximity);
+            return true;
         }
 
         private static void AddPoint(
